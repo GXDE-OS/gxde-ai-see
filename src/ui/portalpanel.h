@@ -6,8 +6,12 @@
 #include <DBlurEffectWidget>
 #include <QWidget>
 
+class ContentFactory;
 class QLabel;
+class QMimeData;
 class QPushButton;
+class QTimer;
+struct DropContent;
 class PortalZone;
 class StagingModel;
 class StagingView;
@@ -42,13 +46,20 @@ private:
     void setupWindow();
     void updateGeometryForContent();
     void updateSelectionBar();
+    void noteDragContent(const QMimeData *mime);
+    void noteDragFinished();
+    void runFactoryAction(const QString &id, const DropContent &content);
+    void showTextDialog(const QString &title, const QString &text);
+    void toast(const QString &text);
 
     StagingModel *m_model = nullptr;
     StagingView *m_view = nullptr;
     PortalZone *m_zone = nullptr;
     QWidget *m_header = nullptr;
     QWidget *m_selectionBar = nullptr;
-    QWidget *m_factory = nullptr;
+    ContentFactory *m_factory = nullptr;
+    QLabel *m_toast = nullptr;
+    QTimer *m_factoryTimer = nullptr;
     QLabel *m_countLabel = nullptr;
     QPushButton *m_selectAllButton = nullptr;
     QPushButton *m_invertButton = nullptr;

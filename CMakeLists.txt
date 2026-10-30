@@ -15,6 +15,7 @@ set(CMAKE_INCLUDE_CURRENT_DIR ON)
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network DBus Svg)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(DTK2WIDGET REQUIRED dtk2widget)
+pkg_check_modules(ICU REQUIRED icu-i18n icu-uc)
 find_package(LayerShellQt QUIET)
 
 set(GXDE_AI_SEE_SOURCES
@@ -23,6 +24,13 @@ set(GXDE_AI_SEE_SOURCES
     src/config.cpp
     src/staging/stagingmodel.cpp
     src/portal/portalclient.cpp
+    src/factory/linktools.cpp
+    src/factory/contentclassifier.cpp
+    src/factory/factoryactions.cpp
+    src/factory/contentfactory.cpp
+    src/actions/downloader.cpp
+    src/actions/texttools.cpp
+    src/todo/todomodel.cpp
     src/ui/portalpanel.cpp
 )
 
@@ -31,6 +39,7 @@ add_executable(gxde-ai-see ${GXDE_AI_SEE_SOURCES})
 target_include_directories(gxde-ai-see PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${DTK2WIDGET_INCLUDE_DIRS}
+    ${ICU_INCLUDE_DIRS}
 )
 
 target_link_libraries(gxde-ai-see PRIVATE
@@ -41,6 +50,7 @@ target_link_libraries(gxde-ai-see PRIVATE
     Qt6::DBus
     Qt6::Svg
     ${DTK2WIDGET_LIBRARIES}
+    ${ICU_LIBRARIES}
 )
 
 target_link_directories(gxde-ai-see PRIVATE ${DTK2WIDGET_LIBRARY_DIRS})
@@ -49,6 +59,16 @@ if (LayerShellQt_FOUND)
     target_link_libraries(gxde-ai-see PRIVATE LayerShellQt::Interface)
     target_compile_definitions(gxde-ai-see PRIVATE GXDE_HAVE_LAYERSHELLQT=1)
 endif ()
+
+add_executable(gxde-ai-see-selftest
+    tests/selftest.cpp
+    src/factory/linktools.cpp
+    src/factory/contentclassifier.cpp
+    src/factory/factoryactions.cpp
+    src/actions/texttools.cpp
+)
+target_include_directories(gxde-ai-see-selftest PRIVATE src ${ICU_INCLUDE_DIRS})
+target_link_libraries(gxde-ai-see-selftest PRIVATE Qt6::Core Qt6::Gui ${ICU_LIBRARIES})
 
 install(TARGETS gxde-ai-see RUNTIME DESTINATION bin)
 install(FILES data/gxde-ai-see.desktop DESTINATION share/applications)

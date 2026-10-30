@@ -5,7 +5,21 @@
 
 #include "config.h"
 #include "portal/portalclient.h"
-#include "staging/stagingitem.h"
+
+#include "actions/downloader.h"
+#include "actions/texttools.h"
+#include "factory/contentclassifier.h"
+#include "factory/contentfactory.h"
+#include "todo/todomodel.h"
+
+#include <QApplication>
+#include <QClipboard>
+#include <QDesktopServices>
+#include <QFileDialog>
+#include <QMessageBox>
+#include <QProcess>
+#include <QStandardPaths>
+#include <QTemporaryDir>#include "staging/stagingitem.h"
 #include "staging/stagingmodel.h"
 
 #include <QApplication>
@@ -267,6 +281,10 @@ public:
         setAcceptDrops(true);
     }
 
+signals:
+    void dragContent(const QMimeData *mime);
+    void dragFinished();
+
 protected:
     void paintEvent(QPaintEvent *event) override
     {
@@ -326,6 +344,7 @@ protected:
             return;
         }
         if (mimeSupported(event->mimeData())) {
+            Q_EMIT dragContent(event->mimeData());
             event->acceptProposedAction();
             return;
         }
@@ -339,6 +358,7 @@ protected:
             return;
         }
         if (mimeSupported(event->mimeData())) {
+            Q_EMIT dragContent(event->mimeData());
             event->acceptProposedAction();
             updateHover(event->position().toPoint());
             return;
@@ -357,7 +377,14 @@ protected:
         if (staging) {
             staging->addMimeData(event->mimeData());
         }
+        Q_EMIT dragFinished();
         event->acceptProposedAction();
+    }
+
+    void dragLeaveEvent(QDragLeaveEvent *event) override
+    {
+        Q_EMIT dragFinished();
+        QListView::dragLeaveEvent(event);
     }
 
 private:
@@ -497,6 +524,8 @@ signals:
     void chatRequested();
     void portalRequested();
     void portalCancelled();
+    void dragContent(const QMimeData *mime);
+    void dragFinished();
 
 protected:
     void resizeEvent(QResizeEvent *event) override
@@ -573,12 +602,14 @@ protected:
         if (!m_portalActive) {
             m_portalTimer.start();
         }
+        Q_EMIT dragContent(event->mimeData());
         event->acceptProposedAction();
     }
 
     void dragMoveEvent(QDragMoveEvent *event) override
     {
         if (mimeSupported(event->mimeData())) {
+            Q_EMIT dragContent(event->mimeData());
             event->acceptProposedAction();
         }
     }
@@ -589,6 +620,7 @@ protected:
         m_active = false;
         update();
         m_portalTimer.stop();
+        Q_EMIT dragFinished();
     }
 
     void dropEvent(QDropEvent *event) override
@@ -596,6 +628,7 @@ protected:
         m_active = false;
         m_portalTimer.stop();
         update();
+        Q_EMIT dragFinished();
         if (!m_portalActive) {
             showHint(tr("悬停在「传送门」上，再移动到目标窗口"));
             event->ignore();
@@ -705,8 +738,12 @@ void PortalPanel::setupWindow()
 
 void PortalPanel::setupUi()
 {
-    auto *outer = new QHBoxLayout(this);
-    outer->setContentsMargins(kMargin, kMargin, kMargin, kMargin);
+    auto *root = new QVBoxLayout(this);
+    root->setContentsMargins(kMargin, kMargin, kMargin, kMargin);
+    root->setSpacing(8);
+
+    auto *outer = new QHBoxLayout;
+    outer->setContentsMargins(0, 0, 0, 0);
     outer->setSpacing(10);
 
     m_zone = new PortalZone(this);
@@ -782,9 +819,37 @@ void PortalPanel::setupUi()
     right->addWidget(m_view, 1);
 
     outer->addLayout(right, 1);
+    root->addLayout(outer);
 
-    m_factory = new QWidget(this);
+    m_factory = new ContentFactory(this);
     m_factory->hide();
+    root->addWidget(m_factory);
+
+    m_toast = new QLabel(this);
+    m_toast->hide();
+    m_toast->setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_toast->setStyleSheet(QStringLiteral(
+        "QLabel { background: rgba(0,0,0,0.72); color: white; border-radius: 8px;"
+        " padding: 6px 12px; font-size: 12px; }"));
+
+    m_factoryTimer = new QTimer(this);
+    m_factoryTimer->setSingleShot(true);
+    m_factoryTimer->setInterval(280);
+    connect(m_factoryTimer, &QTimer::timeout, this, [this]() {
+        if (m_factory) {
+            m_factory->clearContent();
+            m_factory->hide();
+        }
+        refreshLayout();
+    });
+
+    connect(m_zone, &PortalZone::dragContent, this, &PortalPanel::noteDragContent);
+    connect(m_zone, &PortalZone::dragFinished, this, &PortalPanel::noteDragFinished);
+    connect(m_view, &StagingView::dragContent, this, &PortalPanel::noteDragContent);
+    connect(m_view, &StagingView::dragFinished, this, &PortalPanel::noteDragFinished);
+    connect(m_factory, &ContentFactory::actionRequested, this, &PortalPanel::runFactoryAction);
+    connect(m_factory, &ContentFactory::heightChanged, this, [this]() { refreshLayout(); });
+    connect(m_factory, &ContentFactory::dragActivity, this, [this]() { m_factoryTimer->stop(); });
 }
 
 void PortalPanel::refreshLayout()
@@ -807,8 +872,183 @@ void PortalPanel::updateGeometryForContent()
 
     const int headerHeight = 26;
     const int selectionHeight = (m_selectionBar && m_selectionBar->isVisible()) ? 32 : 0;
-    const int totalHeight = kMargin * 2 + headerHeight + 6 + selectionHeight + listHeight;
+    const int factoryHeight =
+        (m_factory && m_factory->isVisible()) ? m_factory->sizeHint().height() + 8 : 0;
+    const int totalHeight =
+        kMargin * 2 + headerHeight + 6 + selectionHeight + listHeight + factoryHeight;
     resize(kPanelWidth, totalHeight);
+}
+
+void PortalPanel::noteDragContent(const QMimeData *mime)
+{
+    if (!mime) {
+        return;
+    }
+
+    m_factoryTimer->stop();
+
+    const DropContent content = ContentClassifier::classify(mime);
+    if (!content.valid()) {
+        return;
+    }
+
+    if (m_factory->isVisible() && m_factory->hasContent() &&
+        m_factory->content().summary() == content.summary()) {
+        return;
+    }
+
+    m_factory->setContent(content);
+    m_factory->show();
+    refreshLayout();
+}
+
+void PortalPanel::noteDragFinished()
+{
+    if (m_factoryTimer) {
+        m_factoryTimer->start();
+    }
+}
+
+void PortalPanel::toast(const QString &text)
+{
+    if (!m_toast) {
+        return;
+    }
+    m_toast->setText(text);
+    m_toast->adjustSize();
+    m_toast->move((width() - m_toast->width()) / 2, height() - m_toast->height() - 14);
+    m_toast->show();
+    m_toast->raise();
+    QTimer::singleShot(2600, m_toast, &QLabel::hide);
+}
+
+void PortalPanel::showTextDialog(const QString &title, const QString &text)
+{
+    QMessageBox box(QMessageBox::Information, title, text.left(4000), QMessageBox::Ok, this);
+    QPushButton *copyButton = box.addButton(tr("复制"), QMessageBox::ActionRole);
+    box.exec();
+    if (box.clickedButton() == copyButton) {
+        QApplication::clipboard()->setText(text);
+        toast(tr("已复制"));
+    }
+}
+
+void PortalPanel::runFactoryAction(const QString &id, const DropContent &content)
+{
+    auto copyText = [this](const QString &text) {
+        QApplication::clipboard()->setText(text);
+        toast(tr("已复制"));
+    };
+
+    const QString link = content.link.url.toString();
+    const QString sourceText = content.kind == DropContent::Text
+                                   ? content.text
+                                   : (content.kind == DropContent::Files
+                                          ? TextTools::readTextFile(content.filePaths.value(0),
+                                                                    512 * 1024)
+                                          : content.text);
+
+    if (id == QLatin1String("open")) {
+        if (content.kind == DropContent::Files) {
+            QDesktopServices::openUrl(QUrl::fromLocalFile(content.filePaths.value(0)));
+        } else if (!link.isEmpty()) {
+            QDesktopServices::openUrl(content.link.url);
+        }
+        return;
+    }
+    if (id == QLatin1String("open_browser") || id == QLatin1String("try_open") ||
+        id == QLatin1String("preview") || id == QLatin1String("play")) {
+        QDesktopServices::openUrl(content.link.url);
+        return;
+    }
+    if (id == QLatin1String("download")) {
+        Downloader::instance()->download(content.link.url);
+        return;
+    }
+    if (id == QLatin1String("save_as")) {
+        Downloader::instance()->saveAs(content.link.url, this);
+        return;
+    }
+    if (id == QLatin1String("copy")) {
+        copyText(!content.link.raw.isEmpty() ? content.link.raw
+                                             : (link.isEmpty() ? content.text : link));
+        return;
+    }
+    if (id == QLatin1String("copy_markdown")) {
+        copyText(QStringLiteral("[%1](%2)").arg(content.link.displayName, link));
+        return;
+    }
+    if (id == QLatin1String("copy_name")) {
+        copyText(content.link.displayName);
+        return;
+    }
+    if (id == QLatin1String("copy_path")) {
+        copyText(content.filePaths.value(0));
+        return;
+    }
+    if (id == QLatin1String("copy_decoded")) {
+        copyText(content.link.decodedUrl);
+        return;
+    }
+    if (id == QLatin1String("decode")) {
+        showTextDialog(tr("真实地址"), content.link.decodedUrl);
+        return;
+    }
+    if (id == QLatin1String("segment")) {
+        const QStringList words = TextTools::segment(sourceText.left(20000));
+        showTextDialog(tr("分词（%1）").arg(words.size()), words.join(QStringLiteral(" / ")));
+        return;
+    }
+    if (id == QLatin1String("extract_links")) {
+        const QStringList links = TextTools::extractLinks(sourceText);
+        showTextDialog(tr("提取链接（%1）").arg(links.size()), links.join(QLatin1Char('\n')));
+        return;
+    }
+    if (id == QLatin1String("speak")) {
+        const QString program = QStandardPaths::findExecutable(QStringLiteral("spd-say"));
+        if (program.isEmpty()) {
+            toast(tr("未找到语音朗读程序"));
+            return;
+        }
+        QProcess::startDetached(program, { sourceText.left(4000) });
+        toast(tr("开始朗读"));
+        return;
+    }
+    if (id == QLatin1String("todo")) {
+        const QString text = content.kind == DropContent::Text ? content.text.left(500)
+                                                               : content.summary();
+        TodoModel::instance()->add(text);
+        toast(tr("已添加到待办"));
+        return;
+    }
+    if (id == QLatin1String("save_image")) {
+        if (content.image.isNull()) {
+            toast(tr("没有可保存的图片"));
+            return;
+        }
+        const QString path = QFileDialog::getSaveFileName(
+            this, tr("保存图片"), QStringLiteral("image.png"), tr("图片 (*.png *.jpg)"));
+        if (!path.isEmpty()) {
+            content.image.save(path);
+            toast(tr("已保存：%1").arg(path));
+        }
+        return;
+    }
+    if (id == QLatin1String("ask")) {
+        Q_EMIT openChatRequested();
+        return;
+    }
+    if (id == QLatin1String("translate")) {
+        toast(tr("翻译接口将在小埃同学接入后可用"));
+        return;
+    }
+    if (id == QLatin1String("ocr") || id == QLatin1String("describe") ||
+        id == QLatin1String("transcribe")) {
+        toast(tr("该能力尚未接入 GXDE Daemon"));
+        return;
+    }
+
+    toast(tr("未知操作：%1").arg(id));
 }
 
 void PortalPanel::updateSelectionBar()
