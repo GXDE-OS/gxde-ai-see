@@ -72,10 +72,7 @@ void McpServer::start()
 
         const int toolsId = m_nextId++;
         m_callbacks.insert(toolsId, [this](const QJsonObject &response) {
-            m_tools = response.value(QStringLiteral("result"))
-                          .toObject()
-                          .value(QStringLiteral("tools"))
-                          .toArray();
+            m_tools = response.value(QStringLiteral("tools")).toArray();
             m_ready = true;
             Q_EMIT readyChanged();
         });
@@ -119,8 +116,16 @@ void McpServer::handleLine(const QByteArray &line)
     if (object.contains(QStringLiteral("id"))) {
         const int id = object.value(QStringLiteral("id")).toInt(-1);
         auto callback = m_callbacks.take(id);
-        if (callback) {
-            callback(object);
+        if (!callback) {
+            return;
+        }
+        if (object.contains(QStringLiteral("error"))) {
+            const QJsonObject error = object.value(QStringLiteral("error")).toObject();
+            callback(QJsonObject{ { QStringLiteral("error"),
+                                   error.value(QStringLiteral("message"))
+                                       .toString(QStringLiteral("MCP 调用失败")) } });
+        } else {
+            callback(object.value(QStringLiteral("result")).toObject());
         }
     }
 }

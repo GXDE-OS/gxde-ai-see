@@ -74,6 +74,17 @@ add_executable(gxde-ai-see-selftest
 target_include_directories(gxde-ai-see-selftest PRIVATE src ${ICU_INCLUDE_DIRS})
 target_link_libraries(gxde-ai-see-selftest PRIVATE Qt6::Core Qt6::Gui ${ICU_LIBRARIES})
 
+add_executable(gxde-ai-see-chattest
+    tests/chattest.cpp
+    src/chat/chatclient.cpp
+    src/chat/mcpclient.cpp
+    src/config.cpp
+)
+target_include_directories(gxde-ai-see-chattest PRIVATE src)
+target_link_libraries(gxde-ai-see-chattest PRIVATE Qt6::Core Qt6::Network)
+target_compile_definitions(gxde-ai-see-chattest PRIVATE
+    TESTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests")
+
 add_executable(gxde-ai-see-mcptest
     tests/mcptest.cpp
     src/chat/mcpclient.cpp
