@@ -34,6 +34,10 @@ signals:
     void heightChanged();
     void dragActivity();
     void askRequested();
+    void askDropped(const QMimeData *mime);
+
+public:
+    QSize sizeHint() const override;
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -43,7 +47,7 @@ private:
     void rebuild();
 
     QLabel *m_summary = nullptr;
-    class QPushButton *m_askButton = nullptr;
+    class AskTile *m_askTile = nullptr;
     QWidget *m_actions = nullptr;
     QGridLayout *m_grid = nullptr;
     DropContent m_content;

@@ -43,6 +43,9 @@ public:
     /** Bring the window up for the "ask AI" action. */
     void activateForAsk();
 
+    /** New conversation pre-filled from a portal drop on the ask tile. */
+    void startConversationWith(const QString &text, const QStringList &files);
+
     /** Insert dropped content into the input of the current/new conversation. */
     void handleDroppedMime(const QMimeData *mime);
     void handleDropOnConversation(int index, const QMimeData *mime);

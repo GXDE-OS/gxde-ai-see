@@ -4,6 +4,7 @@
 #pragma once
 
 #include <QObject>
+#include <QRect>
 
 /**
  * Client for the compositor side "portal" (org.gxde.Portal).
@@ -23,7 +24,7 @@ public:
     bool available() const { return m_available; }
 
     /** @return true when the compositor opened the overview. */
-    bool beginPortal();
+    bool beginPortal(const QRect &panelRect = QRect());
     void cancelPortal();
 
     /** Filter the drag mime types we want to react to. */

@@ -1256,6 +1256,36 @@ void ChatWindow::handleDropOnConversation(int index, const QMimeData *mime)
     activateWindow();
 }
 
+void ChatWindow::startConversationWith(const QString &text, const QStringList &files)
+{
+    activateForAsk();
+    newConversation();
+
+    QString content = text;
+    if (!files.isEmpty()) {
+        if (!content.isEmpty()) {
+            content += QLatin1Char('\n');
+        }
+        content += files.join(QLatin1Char('\n'));
+    }
+    if (!content.isEmpty()) {
+        m_input->setPlainText(content);
+        m_input->moveCursor(QTextCursor::End);
+        const QString title = text.isEmpty() ? QFileInfo(files.value(0)).fileName()
+                                             : text.simplified().left(24);
+        if (m_current >= 0 && !title.isEmpty()) {
+            m_conversations[m_current].title = title;
+            save();
+            updateSidebar();
+            renderConversation();
+        }
+    }
+    m_input->setFocus();
+
+    m_status->setText(tr("拖到左侧空白处＝新对话，拖到左侧会话＝追加到该会话，拖到右侧对话区＝发给当前会话"));
+    m_status->show();
+}
+
 void ChatWindow::activateForAsk()
 {
     show();

@@ -125,6 +125,67 @@ private:
     QString m_id;
 };
 
+class AskTile : public QToolButton
+{
+    Q_OBJECT
+
+public:
+    explicit AskTile(QWidget *parent = nullptr)
+        : QToolButton(parent)
+    {
+        setText(tr("问问\n小埃同学"));
+        setToolTip(tr("把内容放到这里：新开一个对话并填入内容"));
+        setCursor(Qt::PointingHandCursor);
+        setFocusPolicy(Qt::NoFocus);
+        setAcceptDrops(true);
+        setFixedWidth(96);
+        setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+        setStyleSheet(QStringLiteral(
+            "QToolButton { color: rgba(255,255,255,0.9); background: rgba(74,144,255,0.16);"
+            " border: 1px solid rgba(120,180,255,0.28); border-radius: 9px;"
+            " font-size: 12px; padding: 4px; }"
+            "QToolButton:hover { background: rgba(74,144,255,0.32); color: white;"
+            " border-color: rgba(160,205,255,0.7); }"
+            "QToolButton[dragover=\"true\"] { background: rgba(74,144,255,0.45);"
+            " border: 1px solid rgba(180,215,255,0.95); }"));
+    }
+
+signals:
+    void dropped(const QMimeData *mime);
+
+protected:
+    void dragEnterEvent(QDragEnterEvent *event) override
+    {
+        if (!event->mimeData() ||
+            !(event->mimeData()->hasUrls() || event->mimeData()->hasText() ||
+              event->mimeData()->hasImage())) {
+            event->ignore();
+            return;
+        }
+        setProperty("dragover", true);
+        style()->unpolish(this);
+        style()->polish(this);
+        event->acceptProposedAction();
+    }
+
+    void dragLeaveEvent(QDragLeaveEvent *event) override
+    {
+        Q_UNUSED(event)
+        setProperty("dragover", false);
+        style()->unpolish(this);
+        style()->polish(this);
+    }
+
+    void dropEvent(QDropEvent *event) override
+    {
+        setProperty("dragover", false);
+        style()->unpolish(this);
+        style()->polish(this);
+        event->acceptProposedAction();
+        Q_EMIT dropped(event->mimeData());
+    }
+};
+
 ContentFactory::ContentFactory(QWidget *parent)
     : QWidget(parent)
 {
@@ -172,19 +233,15 @@ ContentFactory::ContentFactory(QWidget *parent)
 
     outer->addLayout(left, 1);
 
-    m_askButton = new QPushButton(tr("问问\n小埃同学"), this);
-    m_askButton->setCursor(Qt::PointingHandCursor);
-    m_askButton->setFocusPolicy(Qt::NoFocus);
-    m_askButton->setFixedWidth(92);
-    m_askButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
-    m_askButton->setStyleSheet(QStringLiteral(
-        "QPushButton { color: white; background: rgba(74,144,255,0.22);"
-        " border: 1px solid rgba(120,180,255,0.45); border-radius: 10px;"
-        " font-size: 12px; }"
-        "QPushButton:hover { background: rgba(74,144,255,0.38);"
-        " border-color: rgba(160,205,255,0.8); }"));
-    connect(m_askButton, &QPushButton::clicked, this, &ContentFactory::askRequested);
-    outer->addWidget(m_askButton);
+    m_askTile = new AskTile(this);
+    connect(m_askTile, &QToolButton::clicked, this, &ContentFactory::askRequested);
+    connect(m_askTile, &AskTile::dropped, this, &ContentFactory::askDropped);
+    outer->addWidget(m_askTile);
+}
+
+QSize ContentFactory::sizeHint() const
+{
+    return QSize(size().width(), 148);
 }
 
 void ContentFactory::setContent(const DropContent &content)

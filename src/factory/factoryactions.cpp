@@ -4,6 +4,9 @@
 #include "factoryactions.h"
 
 #include <QFileInfo>
+#include <QRegularExpression>
+
+#include "../actions/texttools.h"
 
 namespace {
 
@@ -41,8 +44,6 @@ QVector<FactoryAction> linkActions(const DropContent &content)
                               QStringLiteral("edit-copy")));
         actions.append(action(QStringLiteral("todo"), QStringLiteral("添加到待办"),
                               QStringLiteral("checkbox-checked")));
-        actions.append(action(QStringLiteral("ask"), QStringLiteral("问问小埃"),
-                              QStringLiteral("dialog-question")));
         return actions;
     }
 
@@ -84,12 +85,20 @@ QVector<FactoryAction> fileActions(const DropContent &content)
         actions.append(action(QStringLiteral("transcribe"), QStringLiteral("转文字"),
                               QStringLiteral("insert-text"), QStringLiteral("尚未接入"), false));
     } else if (type == QStringLiteral("document") || type == QStringLiteral("code")) {
-        actions.append(action(QStringLiteral("segment"), QStringLiteral("分词"),
-                              QStringLiteral("insert-text")));
-        actions.append(action(QStringLiteral("extract_links"), QStringLiteral("提取链接"),
-                              QStringLiteral("insert-link")));
-        actions.append(action(QStringLiteral("speak"), QStringLiteral("朗读"),
-                              QStringLiteral("audio-volume-high")));
+        const QString fileText = TextTools::readTextFile(path);
+        if (!fileText.isEmpty() &&
+            fileText.contains(QRegularExpression(QStringLiteral("[\\x{4e00}-\\x{9fff}]")))) {
+            actions.append(action(QStringLiteral("segment"), QStringLiteral("分词"),
+                                  QStringLiteral("insert-text")));
+        }
+        if (!fileText.isEmpty() && !TextTools::extractLinks(fileText).isEmpty()) {
+            actions.append(action(QStringLiteral("extract_links"), QStringLiteral("提取链接"),
+                                  QStringLiteral("insert-link")));
+        }
+        if (!fileText.isEmpty()) {
+            actions.append(action(QStringLiteral("speak"), QStringLiteral("朗读"),
+                                  QStringLiteral("audio-volume-high")));
+        }
     }
 
     actions.append(action(QStringLiteral("copy_path"), QStringLiteral("复制路径"),
@@ -120,25 +129,28 @@ QVector<FactoryAction> actionsFor(const DropContent &content)
                    QStringLiteral("dialog-question")),
             action(QStringLiteral("todo"), QStringLiteral("添加到待办"),
                    QStringLiteral("checkbox-checked")),
-            action(QStringLiteral("ask"), QStringLiteral("问问小埃"),
-                   QStringLiteral("dialog-question")),
         };
-    case DropContent::Text:
-        return {
-            action(QStringLiteral("segment"), QStringLiteral("分词"),
-                   QStringLiteral("insert-text")),
-            action(QStringLiteral("extract_links"), QStringLiteral("提取链接"),
-                   QStringLiteral("insert-link")),
-            action(QStringLiteral("translate"), QStringLiteral("翻译"),
-                   QStringLiteral("accessories-dictionary")),
-            action(QStringLiteral("speak"), QStringLiteral("朗读"),
-                   QStringLiteral("audio-volume-high")),
-            action(QStringLiteral("copy"), QStringLiteral("复制"), QStringLiteral("edit-copy")),
-            action(QStringLiteral("todo"), QStringLiteral("添加到待办"),
-                   QStringLiteral("checkbox-checked")),
-            action(QStringLiteral("ask"), QStringLiteral("问问小埃"),
-                   QStringLiteral("dialog-question")),
-        };
+    case DropContent::Text: {
+        QVector<FactoryAction> actions;
+        const QString &text = content.text;
+        if (text.contains(QRegularExpression(QStringLiteral("[\\x{4e00}-\\x{9fff}]")))) {
+            actions.append(action(QStringLiteral("segment"), QStringLiteral("分词"),
+                                  QStringLiteral("insert-text")));
+        }
+        if (!TextTools::extractLinks(text).isEmpty()) {
+            actions.append(action(QStringLiteral("extract_links"), QStringLiteral("提取链接"),
+                                  QStringLiteral("insert-link")));
+        }
+        actions.append(action(QStringLiteral("translate"), QStringLiteral("翻译"),
+                              QStringLiteral("accessories-dictionary")));
+        actions.append(action(QStringLiteral("speak"), QStringLiteral("朗读"),
+                              QStringLiteral("audio-volume-high")));
+        actions.append(action(QStringLiteral("copy"), QStringLiteral("复制"),
+                              QStringLiteral("edit-copy")));
+        actions.append(action(QStringLiteral("todo"), QStringLiteral("添加到待办"),
+                              QStringLiteral("checkbox-checked")));
+        return actions;
+    }
     case DropContent::Link:
     case DropContent::CustomLink:
         return linkActions(content);

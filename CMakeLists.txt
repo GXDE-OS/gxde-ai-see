@@ -28,6 +28,9 @@ set(GXDE_AI_SEE_SOURCES
     src/factory/contentclassifier.cpp
     src/factory/factoryactions.cpp
     src/factory/contentfactory.cpp
+    src/dialogs/flowlayout.cpp
+    src/dialogs/segmentdialog.cpp
+    src/dialogs/speechdialog.cpp
     src/actions/downloader.cpp
     src/actions/texttools.cpp
     src/todo/todomodel.cpp

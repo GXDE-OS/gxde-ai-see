@@ -89,16 +89,25 @@ bool App::init(bool daemon, bool forceShow, bool showTodo, bool showChat)
         }
         m_dragging = true;
         if (!m_model->isEmpty()) {
+            if (m_panel && m_panel->isVisible()) {
+                m_panel->suppressPortalIfUnderCursor();
+            }
             return;
         }
         QTimer::singleShot(120, this, [this]() {
             if (m_dragging && m_model->isEmpty()) {
                 showPanel();
+                if (m_panel) {
+                    m_panel->suppressPortalIfUnderCursor();
+                }
             }
         });
     });
     connect(portal, &PortalClient::dragEnded, this, [this]() {
         m_dragging = false;
+        if (m_panel) {
+            m_panel->stopPortalSuppression();
+        }
         if (m_model->isEmpty() && m_panel && m_panel->isVisible()) {
             m_panel->dismiss();
         }
@@ -131,6 +140,13 @@ void App::ensurePanel()
 
     m_panel = new PortalPanel(m_model);
     connect(m_panel, &PortalPanel::openChatRequested, this, &App::showChatWindow);
+    connect(m_panel, &PortalPanel::askWithContent, this,
+            [this](const QString &text, const QStringList &files) {
+                showChatWindow();
+                if (m_chatWindow) {
+                    m_chatWindow->startConversationWith(text, files);
+                }
+            });
 }
 
 void App::showPanel()

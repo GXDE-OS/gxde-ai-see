@@ -10,6 +10,9 @@
 #include "actions/texttools.h"
 #include "factory/contentclassifier.h"
 #include "factory/contentfactory.h"
+
+#include "dialogs/segmentdialog.h"
+#include "dialogs/speechdialog.h"
 #include "todo/todomodel.h"
 
 #include <QApplication>
@@ -579,7 +582,7 @@ public:
         m_portalTimer.setSingleShot(true);
         m_portalTimer.setInterval(150);
         connect(&m_portalTimer, &QTimer::timeout, this, [this]() {
-            if (m_active) {
+            if (m_active && !m_suppressed) {
                 Q_EMIT portalRequested();
             }
         });
@@ -598,6 +601,18 @@ public:
     }
 
     void showMessage(const QString &message) { showHint(message); }
+
+    /* Set when the drag started while the pointer was already over the portal:
+     * do not open the overview until the pointer leaves the panel. */
+    void setSuppressPortal(bool suppress)
+    {
+        m_suppressed = suppress;
+        if (suppress) {
+            m_portalTimer.stop();
+        }
+    }
+    bool suppressed() const { return m_suppressed; }
+    void triggerPortal() { Q_EMIT portalRequested(); }
     void setPortalActive(bool active)
     {
         m_portalActive = active;
@@ -684,7 +699,7 @@ protected:
         }
         m_active = true;
         update();
-        if (!m_portalActive) {
+        if (!m_portalActive && !m_suppressed) {
             m_portalTimer.start();
         }
         Q_EMIT dragContent(event->mimeData());
@@ -736,6 +751,7 @@ private:
     bool m_active = false;
     bool m_hover = false;
     bool m_portalActive = false;
+    bool m_suppressed = false;
 };
 
 /* ------------------------------------------------------------------------- */
@@ -815,7 +831,7 @@ void PortalPanel::setupWindow()
             anchors |= LayerShellQt::Window::AnchorBottom;
             layer->setAnchors(anchors);
             layer->setMargins(
-                QMargins(0, 0, m_rightMargin, m_bottomMargin + m_factoryOffset));
+                QMargins(0, 0, m_rightMargin, m_bottomMargin));
             layer->setLayer(LayerShellQt::Window::LayerOverlay);
             layer->setKeyboardInteractivity(
                 LayerShellQt::Window::KeyboardInteractivityNone);
@@ -840,9 +856,24 @@ void PortalPanel::setupUi()
     m_zone = new PortalZone(this);
     m_zone->setFixedWidth(kZoneWidth);
     outer->addWidget(m_zone);
+    m_suppressWatch = new QTimer(this);
+    m_suppressWatch->setInterval(80);
+    connect(m_suppressWatch, &QTimer::timeout, this, [this]() {
+        if (!m_zone->suppressed()) {
+            m_suppressWatch->stop();
+            return;
+        }
+        if (rect().contains(mapFromGlobal(QCursor::pos()))) {
+            return;
+        }
+        m_suppressWatch->stop();
+        m_zone->setSuppressPortal(false);
+        m_zone->triggerPortal();
+    });
+
     connect(m_zone, &PortalZone::portalRequested, this, [this]() {
         PortalClient *portal = PortalClient::instance();
-        if (portal->beginPortal()) {
+        if (portal->beginPortal(QRect(mapToGlobal(QPoint(0, 0)), size()))) {
             m_zone->setPortalActive(true);
             m_zone->showMessage(tr("移动到目标窗口上松手"));
         } else {
@@ -912,7 +943,7 @@ void PortalPanel::setupUi()
     root->addLayout(outer);
 
     m_factory = new ContentFactory(this);
-    m_factory->hide();
+    m_factory->show();
     root->addWidget(m_factory);
 
     m_toast = new QLabel(this);
@@ -936,7 +967,6 @@ void PortalPanel::setupUi()
             return;
         }
         m_factory->clearContent();
-        m_factory->hide();
         refreshLayout();
     });
 
@@ -946,6 +976,19 @@ void PortalPanel::setupUi()
     connect(m_view, &StagingView::dragFinished, this, &PortalPanel::noteDragFinished);
     connect(m_factory, &ContentFactory::actionRequested, this, &PortalPanel::runFactoryAction);
     connect(m_factory, &ContentFactory::askRequested, this, &PortalPanel::openChatRequested);
+    connect(m_factory, &ContentFactory::askDropped, this, [this](const QMimeData *mime) {
+        if (!mime) {
+            return;
+        }
+        QStringList files;
+        for (const QUrl &url : mime->urls()) {
+            if (url.isLocalFile()) {
+                files.append(url.toLocalFile());
+            }
+        }
+        const QString text = mime->hasText() ? mime->text() : QString();
+        Q_EMIT askWithContent(text, files);
+    });
     connect(m_factory, &ContentFactory::heightChanged, this, [this]() { refreshLayout(); });
     connect(m_factory, &ContentFactory::dragActivity, this, [this]() {
         if (m_factoryTimer) {
@@ -975,18 +1018,12 @@ void PortalPanel::updateGeometryForContent()
 
     const int headerHeight = 26;
     const int selectionHeight = (m_selectionBar && m_selectionBar->isVisible()) ? 32 : 0;
-    const int factoryHeight =
-        (m_factory && m_factory->isVisible()) ? m_factory->sizeHint().height() + 8 : 0;
+    /* The factory always occupies the same strip, so neither the panel size nor
+     * its position changes when a drag starts or ends. */
+    const int factoryHeight = m_factory ? m_factory->sizeHint().height() + 6 : 0;
     const int totalHeight =
         kMargin * 2 + headerHeight + 6 + selectionHeight + listHeight + factoryHeight;
     resize(kPanelWidth, totalHeight);
-
-    /* Growing downwards would push the portal/s. Staging area off screen: raise
-     * the panel by the factory height so the two columns stay where they are. */
-    if (m_factoryOffset != factoryHeight) {
-        m_factoryOffset = factoryHeight;
-        applyMargins();
-    }
 }
 
 void PortalPanel::noteDragContent(const QMimeData *mime)
@@ -1008,8 +1045,6 @@ void PortalPanel::noteDragContent(const QMimeData *mime)
     }
 
     m_factory->setContent(content);
-    m_factory->show();
-    refreshLayout();
 }
 
 void PortalPanel::noteDragFinished()
@@ -1106,7 +1141,10 @@ void PortalPanel::runFactoryAction(const QString &id, const DropContent &content
     }
     if (id == QLatin1String("segment")) {
         const QStringList words = TextTools::segment(sourceText.left(20000));
-        showTextDialog(tr("分词（%1）").arg(words.size()), words.join(QStringLiteral(" / ")));
+        auto *dialog = new SegmentDialog(words);
+        dialog->show();
+        dialog->raise();
+        dialog->activateWindow();
         return;
     }
     if (id == QLatin1String("extract_links")) {
@@ -1115,13 +1153,10 @@ void PortalPanel::runFactoryAction(const QString &id, const DropContent &content
         return;
     }
     if (id == QLatin1String("speak")) {
-        const QString program = QStandardPaths::findExecutable(QStringLiteral("spd-say"));
-        if (program.isEmpty()) {
-            toast(tr("未找到语音朗读程序"));
-            return;
-        }
-        QProcess::startDetached(program, { sourceText.left(4000) });
-        toast(tr("开始朗读"));
+        auto *dialog = new SpeechDialog(sourceText.left(20000));
+        dialog->show();
+        dialog->raise();
+        dialog->activateWindow();
         return;
     }
     if (id == QLatin1String("todo")) {
@@ -1202,7 +1237,7 @@ void PortalPanel::applyMargins()
     if (QGuiApplication::platformName().startsWith(QLatin1String("wayland"))) {
         if (auto *layer = LayerShellQt::Window::get(windowHandle())) {
             layer->setMargins(
-                QMargins(0, 0, m_rightMargin, m_bottomMargin + m_factoryOffset));
+                QMargins(0, 0, m_rightMargin, m_bottomMargin));
             return;
         }
     }
@@ -1210,7 +1245,7 @@ void PortalPanel::applyMargins()
     if (QScreen *scr = screen() ? screen() : QGuiApplication::primaryScreen()) {
         const QRect available = scr->availableGeometry();
         move(available.right() - width() - m_rightMargin,
-             available.bottom() - height() - m_bottomMargin - m_factoryOffset);
+             available.bottom() - height() - m_bottomMargin);
     }
 }
 
@@ -1404,6 +1439,30 @@ void PortalPanel::showContextMenu(const QPoint &globalPos)
                 .arg(QCoreApplication::applicationVersion()));
     } else if (chosen == quit) {
         QCoreApplication::quit();
+    }
+}
+
+void PortalPanel::suppressPortalIfUnderCursor()
+{
+    if (!m_zone || !isVisible()) {
+        return;
+    }
+    const bool under = m_zone->rect().contains(m_zone->mapFromGlobal(QCursor::pos()));
+    m_zone->setSuppressPortal(under);
+    if (under) {
+        m_suppressWatch->start();
+    } else {
+        m_suppressWatch->stop();
+    }
+}
+
+void PortalPanel::stopPortalSuppression()
+{
+    if (m_suppressWatch) {
+        m_suppressWatch->stop();
+    }
+    if (m_zone) {
+        m_zone->setSuppressPortal(false);
     }
 }
 

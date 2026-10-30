@@ -52,13 +52,14 @@ PortalClient::PortalClient(QObject *parent)
                 SLOT(onDropped(QString, bool)));
 }
 
-bool PortalClient::beginPortal()
+bool PortalClient::beginPortal(const QRect &panelRect)
 {
     QDBusMessage message =
         QDBusMessage::createMethodCall(QString::fromLatin1(kService),
                                        QString::fromLatin1(kPath),
                                        QString::fromLatin1(kInterface),
                                        QStringLiteral("BeginPortal"));
+    message << panelRect.x() << panelRect.y() << panelRect.width() << panelRect.height();
     const QDBusMessage reply = QDBusConnection::sessionBus().call(message, QDBus::Block, 500);
     if (reply.type() != QDBusMessage::ReplyMessage || reply.arguments().isEmpty()) {
         return false;
