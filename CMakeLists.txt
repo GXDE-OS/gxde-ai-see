@@ -35,6 +35,8 @@ set(GXDE_AI_SEE_SOURCES
     src/chat/chatclient.cpp
     src/chat/chatwindow.cpp
     src/chat/mcpclient.cpp
+    src/chat/markdown.cpp
+    src/chat/chatview.cpp
     src/ui/portalpanel.cpp
 )
 

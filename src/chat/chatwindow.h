@@ -13,7 +13,7 @@ class QLabel;
 class QListWidget;
 class QPlainTextEdit;
 class QPushButton;
-class QTextBrowser;
+class ChatMessageList;
 class QMimeData;
 class QUrl;
 
@@ -56,6 +56,7 @@ private:
     void newConversation();
     void selectConversation(int index);
     void renderConversation();
+    void updateHeader();
     void updateSidebar();
     void sendMessage();
     void requestCompletion();
@@ -73,7 +74,9 @@ private:
     int currentIndex() const { return m_current; }
 
     QListWidget *m_sidebar = nullptr;
-    QTextBrowser *m_view = nullptr;
+    ChatMessageList *m_messages = nullptr;
+    QLabel *m_titleLabel = nullptr;
+    QLabel *m_modelLabel = nullptr;
     QPlainTextEdit *m_input = nullptr;
     QPushButton *m_sendButton = nullptr;
     QLabel *m_status = nullptr;

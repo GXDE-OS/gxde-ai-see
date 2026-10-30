@@ -4,6 +4,7 @@
 #include <DApplication>
 #include <QCommandLineOption>
 #include <QCommandLineParser>
+#include <QIcon>
 #include <QLocale>
 #include <QStandardPaths>
 #include <QTranslator>
@@ -19,6 +20,7 @@ int main(int argc, char *argv[])
     app.setApplicationName(QStringLiteral("gxde-ai-see"));
     app.setApplicationDisplayName(QStringLiteral("GXDE 小埃同学"));
     app.setApplicationVersion(QStringLiteral("0.1.0"));
+    app.setWindowIcon(QIcon::fromTheme(QStringLiteral("gxde-ai-see")));
     app.setQuitOnLastWindowClosed(false);
 
     const QString locale = QLocale::system().name();

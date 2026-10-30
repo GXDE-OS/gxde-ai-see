@@ -4,6 +4,8 @@
 #include "chatwindow.h"
 
 #include "config.h"
+#include "chatview.h"
+#include "markdown.h"
 #include "mcpclient.h"
 
 #include <QCheckBox>
@@ -18,11 +20,14 @@
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QFile>
+#include <QFontMetrics>
 #include <QFormLayout>
 #include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QImage>
 #include <QInputDialog>
+#include <QPainter>
+#include <QStyledItemDelegate>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -52,72 +57,6 @@ bool mimeOk(const QMimeData *mime)
     return mime && (mime->hasUrls() || mime->hasText() || mime->hasImage());
 }
 
-QString escapedHtml(const QString &text)
-{
-    QString html = text.toHtmlEscaped();
-    html.replace(QLatin1Char('\n'), QStringLiteral("<br/>"));
-    return html;
-}
-
-/** Lightweight Markdown to HTML for assistant messages. */
-QString renderInline(QString text)
-{
-    text = text.toHtmlEscaped();
-    text.replace(QRegularExpression(QStringLiteral("`([^`]+)`")),
-                 QStringLiteral("<code>\\1</code>"));
-    text.replace(QRegularExpression(QStringLiteral("\\*\\*([^*]+)\\*\\*")),
-                 QStringLiteral("<b>\\1</b>"));
-    text.replace(QRegularExpression(QStringLiteral("\\[([^\\]]+)\\]\\((https?://[^)\\s]+)\\)")),
-                 QStringLiteral("<a href=\"\\2\">\\1</a>"));
-    text.replace(QRegularExpression(QStringLiteral("(^|[\\s(])(https?://[^\\s<]+)")),
-                 QStringLiteral("\\1<a href=\"\\2\">\\2</a>"));
-    return text;
-}
-
-QString markdownToHtml(const QString &markdown)
-{
-    QString html;
-    QString code;
-    bool inCode = false;
-
-    const QStringList lines = markdown.split(QLatin1Char('\n'));
-    for (const QString &line : lines) {
-        if (line.trimmed().startsWith(QStringLiteral("```"))) {
-            if (inCode) {
-                html += QStringLiteral("<pre><code>%1</code></pre>").arg(code.toHtmlEscaped());
-                code.clear();
-            }
-            inCode = !inCode;
-            continue;
-        }
-        if (inCode) {
-            code += line;
-            code += QLatin1Char('\n');
-            continue;
-        }
-
-        if (line.startsWith(QStringLiteral("### "))) {
-            html += QStringLiteral("<h3>%1</h3>").arg(renderInline(line.mid(4)));
-        } else if (line.startsWith(QStringLiteral("## "))) {
-            html += QStringLiteral("<h2>%1</h2>").arg(renderInline(line.mid(3)));
-        } else if (line.startsWith(QStringLiteral("# "))) {
-            html += QStringLiteral("<h2>%1</h2>").arg(renderInline(line.mid(2)));
-        } else if (line.startsWith(QStringLiteral("- ")) ||
-                   line.startsWith(QStringLiteral("* "))) {
-            html += QStringLiteral("<div class='li'>• %1</div>").arg(renderInline(line.mid(2)));
-        } else if (line.trimmed().isEmpty()) {
-            html += QStringLiteral("<div class='gap'></div>");
-        } else {
-            html += QStringLiteral("<div>%1</div>").arg(renderInline(line));
-        }
-    }
-
-    if (inCode) {
-        html += QStringLiteral("<pre><code>%1</code></pre>").arg(code.toHtmlEscaped());
-    }
-    return html;
-}
-
 } // namespace
 
 class ChatSidebar : public QListWidget
@@ -133,6 +72,14 @@ public:
 
 signals:
     void droppedAt(int index, const QMimeData *mime);
+    void left();
+
+protected:
+    void leaveEvent(QEvent *event) override
+    {
+        Q_EMIT left();
+        QListWidget::leaveEvent(event);
+    }
 
 protected:
     void dragEnterEvent(QDragEnterEvent *event) override
@@ -205,6 +152,77 @@ protected:
     }
 };
 
+namespace {
+constexpr int kPreviewRole = Qt::UserRole + 1;
+constexpr int kTimeRole = Qt::UserRole + 2;
+}
+
+class ConversationDelegate : public QStyledItemDelegate
+{
+public:
+    explicit ConversationDelegate(QObject *parent = nullptr)
+        : QStyledItemDelegate(parent)
+    {
+    }
+
+    void setHoverRow(int row) { m_hoverRow = row; }
+
+    QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override
+    {
+        Q_UNUSED(option)
+        Q_UNUSED(index)
+        return QSize(0, 62);
+    }
+
+    void paint(QPainter *painter, const QStyleOptionViewItem &option,
+               const QModelIndex &index) const override
+    {
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing, true);
+
+        const QRect row = option.rect.adjusted(2, 2, -2, -2);
+        const bool selected = option.state & QStyle::State_Selected;
+        if (selected || index.row() == m_hoverRow) {
+            painter->setPen(Qt::NoPen);
+            painter->setBrush(selected ? QColor(120, 180, 255, 62) : QColor(255, 255, 255, 16));
+            painter->drawRoundedRect(row, 8, 8);
+        }
+
+        QFont titleFont = option.font;
+        titleFont.setPixelSize(13);
+        titleFont.setWeight(QFont::DemiBold);
+        painter->setFont(titleFont);
+        painter->setPen(selected ? QColor(255, 255, 255, 245) : QColor(255, 255, 255, 215));
+        const QFontMetrics titleMetrics(titleFont);
+        painter->drawText(QRect(row.left() + 10, row.top() + 9, row.width() - 70, 18),
+                          Qt::AlignLeft | Qt::AlignVCenter,
+                          titleMetrics.elidedText(index.data(Qt::DisplayRole).toString(),
+                                                  Qt::ElideRight, row.width() - 70));
+
+        QFont smallFont = option.font;
+        smallFont.setPixelSize(10);
+        painter->setFont(smallFont);
+        painter->setPen(QColor(255, 255, 255, 95));
+        painter->drawText(QRect(row.right() - 56, row.top() + 10, 46, 14),
+                          Qt::AlignRight | Qt::AlignVCenter,
+                          index.data(kTimeRole).toString());
+
+        smallFont.setPixelSize(11);
+        painter->setFont(smallFont);
+        painter->setPen(QColor(255, 255, 255, 115));
+        const QFontMetrics previewMetrics(smallFont);
+        painter->drawText(QRect(row.left() + 10, row.top() + 30, row.width() - 20, 16),
+                          Qt::AlignLeft | Qt::AlignVCenter,
+                          previewMetrics.elidedText(index.data(kPreviewRole).toString(),
+                                                    Qt::ElideRight, row.width() - 20));
+
+        painter->restore();
+    }
+
+private:
+    int m_hoverRow = -1;
+};
+
 ChatWindow::ChatWindow(QWidget *parent)
     : QWidget(parent)
     , m_client(new ChatClient(this))
@@ -231,7 +249,9 @@ ChatWindow::ChatWindow(QWidget *parent)
             return;
         }
         m_conversations[m_current].messages[m_streamingIndex].content += text;
-        renderConversation();
+        m_messages->updateMessage(
+            m_streamingIndex,
+            m_conversations[m_current].messages[m_streamingIndex].content);
     });
     connect(m_client, &ChatClient::finished, this, [this](const QString &) {
         m_streamingIndex = -1;
@@ -263,7 +283,7 @@ ChatWindow::ChatWindow(QWidget *parent)
         message.content += QStringLiteral("%1🔧 调用工具：%2")
                                .arg(message.content.isEmpty() ? QString() : QStringLiteral("\n\n"),
                                     names.join(QStringLiteral(", ")));
-        renderConversation();
+        m_messages->updateMessage(m_streamingIndex, message.content);
 
         runToolCalls(calls, 0, QJsonArray());
     });
@@ -321,52 +341,197 @@ void ChatWindow::setupUi()
     root->setContentsMargins(0, 0, 0, 0);
     root->setSpacing(0);
 
+    /* ---------------- sidebar ---------------- */
     auto *sidebarPane = new QWidget(this);
     sidebarPane->setObjectName(QStringLiteral("sidebar"));
-    sidebarPane->setFixedWidth(250);
+    sidebarPane->setFixedWidth(264);
     sidebarPane->setStyleSheet(QStringLiteral(
-        "#sidebar { background: rgba(255,255,255,0.045);"
-        " border-right: 1px solid rgba(255,255,255,0.08); }"));
+        "#sidebar { background: #17171b; border-right: 1px solid rgba(255,255,255,0.06); }"));
 
     auto *sidebarLayout = new QVBoxLayout(sidebarPane);
-    sidebarLayout->setContentsMargins(12, 14, 12, 12);
+    sidebarLayout->setContentsMargins(14, 16, 14, 12);
     sidebarLayout->setSpacing(10);
 
+    auto *brandRow = new QHBoxLayout;
+    brandRow->setSpacing(10);
+    auto *logo = new QLabel(sidebarPane);
+    logo->setFixedSize(34, 34);
+    logo->setPixmap(QApplication::windowIcon().pixmap(34, 34));
+    logo->setScaledContents(true);
+    logo->setStyleSheet(QStringLiteral("border-radius: 8px;"));
+    brandRow->addWidget(logo);
+
+    auto *brandColumn = new QVBoxLayout;
+    brandColumn->setSpacing(1);
     auto *brand = new QLabel(tr("小埃同学"), sidebarPane);
     QFont brandFont = brand->font();
-    brandFont.setPixelSize(17);
+    brandFont.setPixelSize(15);
     brandFont.setWeight(QFont::DemiBold);
     brand->setFont(brandFont);
     brand->setStyleSheet(QStringLiteral("color: rgba(255,255,255,0.92);"));
-    sidebarLayout->addWidget(brand);
-
-    auto *subtitle = new QLabel(tr("把内容拖进对话即可提问"), sidebarPane);
-    subtitle->setStyleSheet(QStringLiteral("color: rgba(255,255,255,0.4); font-size: 11px;"));
-    sidebarLayout->addWidget(subtitle);
-
-    m_sidebar = new ChatSidebar(sidebarPane);
-    m_sidebar->setFrameShape(QFrame::NoFrame);
-    m_sidebar->setStyleSheet(QStringLiteral(
-        "QListWidget { background: transparent; border: none; color: rgba(255,255,255,0.82); }"
-        "QListWidget::item { padding: 8px 6px; border-radius: 7px; }"
-        "QListWidget::item:hover { background: rgba(255,255,255,0.07); }"
-        "QListWidget::item:selected { background: rgba(120,180,255,0.24); color: white; }"));
-    sidebarLayout->addWidget(m_sidebar, 1);
+    brandColumn->addWidget(brand);
+    auto *brandSub = new QLabel(QStringLiteral("GXDE AI See"), sidebarPane);
+    brandSub->setStyleSheet(QStringLiteral("color: rgba(255,255,255,0.35); font-size: 10px;"));
+    brandColumn->addWidget(brandSub);
+    brandRow->addLayout(brandColumn);
+    brandRow->addStretch();
+    sidebarLayout->addLayout(brandRow);
 
     auto *newButton = new QPushButton(tr("＋ 新建对话"), sidebarPane);
     newButton->setCursor(Qt::PointingHandCursor);
+    newButton->setFixedHeight(34);
     newButton->setStyleSheet(QStringLiteral(
-        "QPushButton { color: rgba(255,255,255,0.85); background: rgba(255,255,255,0.08);"
-        " border: none; border-radius: 8px; padding: 7px; font-size: 12px; }"
-        "QPushButton:hover { background: rgba(120,180,255,0.28); color: white; }"));
+        "QPushButton { color: white; background: rgba(74,144,255,0.85); border: none;"
+        " border-radius: 9px; font-size: 12px; }"
+        "QPushButton:hover { background: rgba(90,160,255,0.95); }"));
     sidebarLayout->addWidget(newButton);
 
-    auto *menuButton = new QPushButton(tr("⋯ 更多"), sidebarPane);
+    m_sidebar = new ChatSidebar(sidebarPane);
+    m_sidebar->setFrameShape(QFrame::NoFrame);
+    m_sidebar->setMouseTracking(true);
+    m_sidebar->setStyleSheet(
+        QStringLiteral("QListWidget { background: transparent; border: none; }"));
+    auto *conversationDelegate = new ConversationDelegate(m_sidebar);
+    m_sidebar->setItemDelegate(conversationDelegate);
+    connect(m_sidebar, &QListWidget::entered, this,
+            [this, conversationDelegate](const QModelIndex &index) {
+                conversationDelegate->setHoverRow(index.row());
+                m_sidebar->viewport()->update();
+            });
+    connect(static_cast<ChatSidebar *>(m_sidebar), &ChatSidebar::left, this,
+            [this, conversationDelegate]() {
+                conversationDelegate->setHoverRow(-1);
+                m_sidebar->viewport()->update();
+            });
+    sidebarLayout->addWidget(m_sidebar, 1);
+
+    auto *bottomRow = new QHBoxLayout;
+    bottomRow->setSpacing(6);
+    auto *settingsButton = new QPushButton(tr("⚙ 设置"), sidebarPane);
+    settingsButton->setCursor(Qt::PointingHandCursor);
+    settingsButton->setStyleSheet(QStringLiteral(
+        "QPushButton { color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.06);"
+        " border: none; border-radius: 8px; padding: 6px 8px; font-size: 12px; }"
+        "QPushButton:hover { background: rgba(255,255,255,0.12); color: white; }"));
+    bottomRow->addWidget(settingsButton, 1);
+
+    auto *menuButton = new QPushButton(QStringLiteral("⋯"), sidebarPane);
     menuButton->setCursor(Qt::PointingHandCursor);
-    menuButton->setStyleSheet(QStringLiteral(
-        "QPushButton { color: rgba(255,255,255,0.55); background: transparent;"
-        " border: none; padding: 2px; font-size: 12px; }"
-        "QPushButton:hover { color: white; }"));
+    menuButton->setFixedWidth(38);
+    menuButton->setStyleSheet(settingsButton->styleSheet());
+    bottomRow->addWidget(menuButton);
+    sidebarLayout->addLayout(bottomRow);
+
+    root->addWidget(sidebarPane);
+
+    /* ---------------- chat pane ---------------- */
+    auto *pane = new QWidget(this);
+    pane->setStyleSheet(QStringLiteral("background: #1e1e22;"));
+    auto *paneLayout = new QVBoxLayout(pane);
+    paneLayout->setContentsMargins(0, 0, 0, 0);
+    paneLayout->setSpacing(0);
+
+    auto *header = new QWidget(pane);
+    header->setFixedHeight(56);
+    header->setStyleSheet(QStringLiteral(
+        "QWidget { background: rgba(255,255,255,0.02);"
+        " border-bottom: 1px solid rgba(255,255,255,0.06); }"));
+    auto *headerLayout = new QHBoxLayout(header);
+    headerLayout->setContentsMargins(20, 0, 16, 0);
+    headerLayout->setSpacing(10);
+
+    m_titleLabel = new QLabel(tr("小埃同学"), header);
+    QFont titleFont = m_titleLabel->font();
+    titleFont.setPixelSize(15);
+    titleFont.setWeight(QFont::DemiBold);
+    m_titleLabel->setFont(titleFont);
+    m_titleLabel->setStyleSheet(QStringLiteral("color: rgba(255,255,255,0.92);"));
+    headerLayout->addWidget(m_titleLabel);
+
+    m_modelLabel = new QLabel(QStringLiteral("deepseek-chat"), header);
+    m_modelLabel->setStyleSheet(QStringLiteral(
+        "QLabel { color: rgba(160,200,240,0.75); background: rgba(74,144,255,0.13);"
+        " border-radius: 8px; padding: 2px 8px; font-size: 10px; }"));
+    headerLayout->addWidget(m_modelLabel);
+    headerLayout->addStretch();
+    paneLayout->addWidget(header);
+
+    m_messages = new ChatMessageList(pane);
+    paneLayout->addWidget(m_messages, 1);
+
+    m_status = new QLabel(pane);
+    m_status->setContentsMargins(20, 0, 20, 0);
+    m_status->setStyleSheet(QStringLiteral("color: rgba(255,170,120,0.9); font-size: 12px;"));
+    m_status->hide();
+    paneLayout->addWidget(m_status);
+
+    auto *inputPane = new QWidget(pane);
+    auto *inputLayout = new QVBoxLayout(inputPane);
+    inputLayout->setContentsMargins(20, 6, 20, 14);
+    inputLayout->setSpacing(5);
+
+    auto *inputFrame = new QFrame(inputPane);
+    inputFrame->setStyleSheet(QStringLiteral(
+        "QFrame { background: rgba(255,255,255,0.055);"
+        " border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; }"));
+    auto *frameLayout = new QHBoxLayout(inputFrame);
+    frameLayout->setContentsMargins(12, 8, 8, 8);
+    frameLayout->setSpacing(8);
+
+    m_input = new QPlainTextEdit(inputFrame);
+    m_input->setPlaceholderText(tr("输入消息，Ctrl+Enter 发送；也可以把文件/文字拖进窗口"));
+    m_input->setFixedHeight(64);
+    m_input->setStyleSheet(QStringLiteral(
+        "QPlainTextEdit { background: transparent; color: rgba(245,245,245,0.95);"
+        " border: none; font-size: 13px; }"));
+    frameLayout->addWidget(m_input, 1);
+
+    m_sendButton = new QPushButton(tr("发送"), inputFrame);
+    m_sendButton->setFixedSize(72, 34);
+    m_sendButton->setCursor(Qt::PointingHandCursor);
+    m_sendButton->setStyleSheet(QStringLiteral(
+        "QPushButton { color: white; background: rgba(74,144,255,0.9); border: none;"
+        " border-radius: 9px; font-size: 13px; }"
+        "QPushButton:hover { background: rgba(90,160,255,1.0); }"
+        "QPushButton:disabled { background: rgba(255,255,255,0.1);"
+        " color: rgba(255,255,255,0.35); }"));
+    frameLayout->addWidget(m_sendButton, 0, Qt::AlignBottom);
+    inputLayout->addWidget(inputFrame);
+
+    auto *hint = new QLabel(tr("Enter 换行 · Ctrl+Enter 发送 · 支持拖入文件/链接/图片"), inputPane);
+    hint->setStyleSheet(QStringLiteral("color: rgba(255,255,255,0.3); font-size: 10px;"));
+    hint->setAlignment(Qt::AlignRight);
+    inputLayout->addWidget(hint);
+    paneLayout->addWidget(inputPane);
+
+    root->addWidget(pane, 1);
+
+    /* ---------------- connections ---------------- */
+    connect(newButton, &QPushButton::clicked, this, &ChatWindow::newConversation);
+    connect(settingsButton, &QPushButton::clicked, this, &ChatWindow::openSettings);
+    connect(m_sendButton, &QPushButton::clicked, this, &ChatWindow::sendMessage);
+    connect(m_input, &QPlainTextEdit::textChanged, this, [this]() {
+        m_sendButton->setEnabled(!m_input->toPlainText().trimmed().isEmpty() &&
+                                 !m_client->busy());
+    });
+    m_sendButton->setEnabled(false);
+
+    connect(m_sidebar, &QListWidget::currentRowChanged, this, &ChatWindow::selectConversation);
+    connect(static_cast<ChatSidebar *>(m_sidebar), &ChatSidebar::droppedAt, this,
+            &ChatWindow::handleDropOnConversation);
+    connect(m_messages, &ChatMessageList::dropped, this, &ChatWindow::handleDroppedMime);
+    connect(m_messages, &ChatMessageList::linkActivated, this, &ChatWindow::handleAnchor);
+    connect(m_messages, &ChatMessageList::copyRequested, this, [this](int index) {
+        if (m_current >= 0 && index >= 0 &&
+            index < m_conversations.at(m_current).messages.size()) {
+            QApplication::clipboard()->setText(
+                m_conversations.at(m_current).messages.at(index).content);
+        }
+    });
+    connect(m_messages, &ChatMessageList::editRequested, this, &ChatWindow::editMessage);
+    connect(m_messages, &ChatMessageList::forkRequested, this, &ChatWindow::forkFrom);
+    connect(m_messages, &ChatMessageList::retryRequested, this, &ChatWindow::retryLast);
+
     auto *menu = new QMenu(menuButton);
     menu->addAction(tr("压缩上下文"), this, [this]() { beginCompression(false); });
     menu->addAction(tr("重试上一条"), this, &ChatWindow::retryLast);
@@ -380,113 +545,6 @@ void ChatWindow::setupUi()
     menu->addSeparator();
     menu->addAction(tr("关于"), this, &ChatWindow::showAbout);
     menuButton->setMenu(menu);
-    sidebarLayout->addWidget(menuButton);
-
-    auto *settingsButton = new QPushButton(tr("设置"), sidebarPane);
-    settingsButton->setCursor(Qt::PointingHandCursor);
-    settingsButton->setStyleSheet(QStringLiteral(
-        "QPushButton { color: rgba(255,255,255,0.55); background: transparent;"
-        " border: none; padding: 4px; font-size: 12px; }"
-        "QPushButton:hover { color: white; }"));
-    sidebarLayout->addWidget(settingsButton);
-
-    root->addWidget(sidebarPane);
-
-    auto *right = new QWidget(this);
-    auto *rightLayout = new QVBoxLayout(right);
-    rightLayout->setContentsMargins(14, 14, 14, 12);
-    rightLayout->setSpacing(10);
-
-    m_view = new ChatView(right);
-    m_view->setOpenExternalLinks(false);
-    m_view->setFrameShape(QFrame::NoFrame);
-    m_view->setStyleSheet(QStringLiteral(
-        "QTextBrowser { background: transparent; color: rgba(240,240,240,0.94);"
-        " border: none; font-size: 14px; }"));
-    rightLayout->addWidget(m_view, 1);
-
-    m_status = new QLabel(right);
-    m_status->setStyleSheet(QStringLiteral("color: rgba(255,170,120,0.9); font-size: 12px;"));
-    m_status->hide();
-    rightLayout->addWidget(m_status);
-
-    auto *inputRow = new QHBoxLayout;
-    inputRow->setSpacing(10);
-
-    m_input = new QPlainTextEdit(right);
-    m_input->setPlaceholderText(tr("输入消息，Ctrl+Enter 发送；也可以把文件/文字拖进窗口"));
-    m_input->setFixedHeight(84);
-    m_input->setStyleSheet(QStringLiteral(
-        "QPlainTextEdit { background: rgba(255,255,255,0.06); color: rgba(245,245,245,0.95);"
-        " border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 8px;"
-        " font-size: 13px; }"));
-    inputRow->addWidget(m_input, 1);
-
-    m_sendButton = new QPushButton(tr("发送"), right);
-    m_sendButton->setFixedSize(76, 40);
-    m_sendButton->setCursor(Qt::PointingHandCursor);
-    m_sendButton->setStyleSheet(QStringLiteral(
-        "QPushButton { color: white; background: rgba(74,144,255,0.85); border: none;"
-        " border-radius: 10px; font-size: 13px; }"
-        "QPushButton:hover { background: rgba(90,160,255,0.95); }"
-        "QPushButton:disabled { background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.4); }"));
-    inputRow->addWidget(m_sendButton);
-
-    rightLayout->addLayout(inputRow);
-    root->addWidget(right, 1);
-
-    connect(newButton, &QPushButton::clicked, this, &ChatWindow::newConversation);
-    connect(settingsButton, &QPushButton::clicked, this, &ChatWindow::openSettings);
-    connect(m_sendButton, &QPushButton::clicked, this, &ChatWindow::sendMessage);
-    connect(m_input, &QPlainTextEdit::textChanged, this, [this]() {
-        m_sendButton->setEnabled(!m_input->toPlainText().trimmed().isEmpty() &&
-                                 !m_client->busy());
-    });
-    m_sendButton->setEnabled(false);
-
-    connect(m_sidebar, &QListWidget::currentRowChanged, this, &ChatWindow::selectConversation);
-
-    m_sidebar->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(m_sidebar, &QListWidget::customContextMenuRequested, this,
-            [this](const QPoint &pos) {
-                const QModelIndex index = m_sidebar->indexAt(pos);
-                if (!index.isValid() || index.row() >= m_conversations.size()) {
-                    return;
-                }
-                const int row = index.row();
-                QMenu menu(this);
-                QAction *rename = menu.addAction(tr("重命名对话"));
-                QAction *remove = menu.addAction(tr("删除对话"));
-                QAction *chosen = menu.exec(m_sidebar->viewport()->mapToGlobal(pos));
-                if (chosen == rename) {
-                    bool ok = false;
-                    const QString title = QInputDialog::getText(
-                        nullptr, tr("重命名对话"), tr("名称"), QLineEdit::Normal,
-                        m_conversations.at(row).title, &ok);
-                    if (ok && !title.trimmed().isEmpty()) {
-                        m_conversations[row].title = title.trimmed();
-                        save();
-                        updateSidebar();
-                        renderConversation();
-                    }
-                } else if (chosen == remove) {
-                    if (m_client->busy()) {
-                        m_client->cancel();
-                        m_streamingIndex = -1;
-                    }
-                    m_conversations.removeAt(row);
-                    m_current = m_conversations.isEmpty() ? -1
-                                                          : qBound(0, row, m_conversations.size() - 1);
-                    save();
-                    updateSidebar();
-                    renderConversation();
-                }
-            });
-    connect(static_cast<ChatSidebar *>(m_sidebar), &ChatSidebar::droppedAt, this,
-            &ChatWindow::handleDropOnConversation);
-    connect(static_cast<ChatView *>(m_view), &ChatView::dropped, this,
-            &ChatWindow::handleDroppedMime);
-    connect(m_view, &QTextBrowser::anchorClicked, this, &ChatWindow::handleAnchor);
 
     auto *sendShortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_Return), m_input);
     connect(sendShortcut, &QShortcut::activated, this, &ChatWindow::sendMessage);
@@ -599,78 +657,45 @@ void ChatWindow::updateSidebar()
     const QSignalBlocker blocker(m_sidebar);
     m_sidebar->clear();
     for (const ChatConversation &conversation : m_conversations) {
-        m_sidebar->addItem(conversation.title);
+        auto *item = new QListWidgetItem(conversation.title, m_sidebar);
+        QString preview = tr("新对话");
+        for (int i = conversation.messages.size() - 1; i >= 0; --i) {
+            const ChatMessage &message = conversation.messages.at(i);
+            if (!message.content.isEmpty()) {
+                preview = message.content.simplified().left(60);
+                break;
+            }
+        }
+        item->setData(kPreviewRole, preview);
+        item->setData(kTimeRole,
+                      QDateTime::fromMSecsSinceEpoch(conversation.updatedAt)
+                          .toString(QStringLiteral("HH:mm")));
     }
     if (m_current >= 0 && m_current < m_sidebar->count()) {
         m_sidebar->setCurrentRow(m_current);
     }
+    updateHeader();
 }
 
 void ChatWindow::renderConversation()
 {
-    QString html;
-    html += QStringLiteral(
-        "<style>body{color:#e9e9e9;font-size:14px;} .role{font-size:11px;color:#8a8a8a;"
-        "margin-top:14px;} .user{color:#9ecbff;} .assistant{color:#efefef;}"
-        ".welcome{color:#b9b9b9;line-height:1.6;} pre{background:rgba(255,255,255,0.07);"
-        "padding:8px;border-radius:6px;} h1,h2,h3{margin:8px 0 4px 0;} .li{margin-left:10px;} "
-        ".gap{height:6px;} code{background:rgba(255,255,255,0.1);"
-        "border-radius:4px;padding:1px 4px;}</style>");
-
     if (m_current < 0 || m_conversations.isEmpty()) {
-        html += QStringLiteral(
-            "<div class='welcome'><h3>你好，我是小埃同学。</h3>"
-            "<p>把小埃当成桌面上的一个抽屉：<br/>"
-            "· 把文件、链接、文字拖到左侧列表空白处 = 新建对话<br/>"
-            "· 拖到左侧某个对话 = 给那个对话补充内容<br/>"
-            "· 拖到右侧对话区 = 发给当前对话</p>"
-            "<p>第一次使用需要配置 DeepSeek API Key：点左下角「设置」，"
-            "在 <a href='https://platform.deepseek.com'>platform.deepseek.com</a> "
-            "创建 Key 后填进来。</p></div>");
-        m_view->setHtml(html);
+        m_messages->setMessages({});
+        updateHeader();
         return;
     }
+    m_messages->setMessages(m_conversations.at(m_current).messages);
+    updateHeader();
+}
 
-    const ChatConversation &conversation = m_conversations.at(m_current);
-    if (conversation.messages.isEmpty()) {
-        html += QStringLiteral("<div class='welcome'><h3>%1</h3>"
-                               "<p>直接输入问题，或者把内容拖进来。</p></div>")
-                    .arg(escapedHtml(conversation.title));
-    }
-
-    for (int i = 0; i < conversation.messages.size(); ++i) {
-        const ChatMessage &message = conversation.messages.at(i);
-        const QString role = message.role == QStringLiteral("user") ? tr("你") : tr("小埃");
-        const QString cssClass =
-            message.role == QStringLiteral("user") ? QStringLiteral("user")
-                                                   : QStringLiteral("assistant");
-        html += QStringLiteral("<div class='role'>%1</div>").arg(role);
-        const QString body = message.role == QStringLiteral("assistant")
-                                 ? markdownToHtml(message.content)
-                                 : escapedHtml(message.content);
-        html += QStringLiteral("<div class='%1'>%2</div>").arg(cssClass, body);
-
-        html += QStringLiteral("<div class='actions'>");
-        if (message.role == QStringLiteral("user")) {
-            html += QStringLiteral("<a href='gxde-ai-see:edit/%1'>编辑</a>").arg(i);
-        } else if (message.role == QStringLiteral("assistant")) {
-            html += QStringLiteral("<a href='gxde-ai-see:copy/%1'>复制</a> · ").arg(i);
-            html += QStringLiteral("<a href='gxde-ai-see:fork/%1'>分支</a>").arg(i);
-            if (i == conversation.messages.size() - 1) {
-                html += QStringLiteral(" · <a href='gxde-ai-see:retry'>重试</a>");
-            }
-        }
-        html += QStringLiteral("</div>");
-    }
-
-    if (m_client->busy() && m_streamingIndex >= 0) {
-        html += QStringLiteral("<div class='role'>%1</div><div class='assistant'>…</div>")
-                    .arg(tr("小埃"));
-    }
-
-    m_view->setHtml(html);
-    m_view->moveCursor(QTextCursor::End);
-    m_view->ensureCursorVisible();
+void ChatWindow::updateHeader()
+{
+    const bool valid = m_current >= 0 && m_current < m_conversations.size();
+    m_titleLabel->setText(valid ? m_conversations.at(m_current).title : tr("小埃同学"));
+    m_modelLabel->setText(Config::instance()
+                              ->get(QStringLiteral("chat/model"),
+                                    QStringLiteral("deepseek-chat"))
+                              .toString());
 }
 
 void ChatWindow::sendMessage()
