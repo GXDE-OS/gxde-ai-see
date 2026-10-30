@@ -4,10 +4,12 @@
 #include "app.h"
 
 #include "config.h"
+#include "portal/portalclient.h"
 #include "staging/stagingmodel.h"
 #include "ui/portalpanel.h"
 
 #include <QLocalServer>
+#include <QTimer>
 #include <QLocalSocket>
 
 #include <unistd.h>
@@ -49,6 +51,28 @@ bool App::init(bool daemon, bool forceShow)
     });
 
     m_model = new StagingModel(this);
+
+    PortalClient *portal = PortalClient::instance();
+    connect(portal, &PortalClient::dragStarted, this, [this](const QString &mimeTypes) {
+        if (!PortalClient::mimeInteresting(mimeTypes)) {
+            return;
+        }
+        m_dragging = true;
+        if (!m_model->isEmpty()) {
+            return;
+        }
+        QTimer::singleShot(120, this, [this]() {
+            if (m_dragging && m_model->isEmpty()) {
+                showPanel();
+            }
+        });
+    });
+    connect(portal, &PortalClient::dragEnded, this, [this]() {
+        m_dragging = false;
+        if (m_model->isEmpty() && m_panel && m_panel->isVisible()) {
+            m_panel->dismiss();
+        }
+    });
 
     connect(m_model, &StagingModel::countChanged, this, [this]() {
         if (!m_daemon && !m_model->isEmpty() && m_panel) {

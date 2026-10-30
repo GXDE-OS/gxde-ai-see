@@ -82,6 +82,7 @@ QJsonObject StagingItem::toJson() const
     obj.insert(QStringLiteral("text"), text);
     obj.insert(QStringLiteral("name"), name);
     obj.insert(QStringLiteral("checked"), checked);
+    obj.insert(QStringLiteral("pinned"), pinned);
     obj.insert(QStringLiteral("createdAt"), createdAt);
     return obj;
 }
@@ -95,6 +96,7 @@ StagingItem StagingItem::fromJson(const QJsonObject &obj)
     item.text = obj.value(QStringLiteral("text")).toString();
     item.name = obj.value(QStringLiteral("name")).toString();
     item.checked = obj.value(QStringLiteral("checked")).toBool();
+    item.pinned = obj.value(QStringLiteral("pinned")).toBool();
     item.createdAt = static_cast<qint64>(obj.value(QStringLiteral("createdAt")).toDouble());
     if (item.id.isEmpty()) {
         item.id = newId();
@@ -144,6 +146,8 @@ QVariant StagingModel::data(const QModelIndex &index, int role) const
         return item.text;
     case CheckedRole:
         return item.checked;
+    case PinnedRole:
+        return item.pinned;
     case ExistsRole:
         return item.exists();
     case IconRole:
@@ -299,6 +303,20 @@ void StagingModel::setChecked(int row, bool checked)
     m_items[row].checked = checked;
     const QModelIndex idx = index(row);
     Q_EMIT dataChanged(idx, idx, {CheckedRole});
+    save();
+}
+
+void StagingModel::setPinned(int row, bool pinned)
+{
+    if (row < 0 || row >= m_items.size()) {
+        return;
+    }
+    if (m_items[row].pinned == pinned) {
+        return;
+    }
+    m_items[row].pinned = pinned;
+    const QModelIndex idx = index(row);
+    Q_EMIT dataChanged(idx, idx, {PinnedRole});
     save();
 }
 

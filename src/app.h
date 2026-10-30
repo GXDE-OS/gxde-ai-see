@@ -35,4 +35,5 @@ private:
     PortalPanel *m_panel = nullptr;
     QLocalServer *m_server = nullptr;
     bool m_daemon = false;
+    bool m_dragging = false;
 };

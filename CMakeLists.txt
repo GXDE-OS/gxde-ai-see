@@ -22,6 +22,7 @@ set(GXDE_AI_SEE_SOURCES
     src/app.cpp
     src/config.cpp
     src/staging/stagingmodel.cpp
+    src/portal/portalclient.cpp
     src/ui/portalpanel.cpp
 )
 

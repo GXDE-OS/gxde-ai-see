@@ -31,6 +31,7 @@ public:
         UriRole,
         TextRole,
         CheckedRole,
+        PinnedRole,
         ExistsRole,
         IconRole,
     };
@@ -49,6 +50,7 @@ public:
     void addImage(const QImage &image, int *addedRow = nullptr);
 
     void setChecked(int row, bool checked);
+    void setPinned(int row, bool pinned);
     void clearAll();
 
     const StagingItem *itemAt(int row) const;

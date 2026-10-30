@@ -4,6 +4,7 @@
 #include "portalpanel.h"
 
 #include "config.h"
+#include "portal/portalclient.h"
 #include "staging/stagingitem.h"
 #include "staging/stagingmodel.h"
 
@@ -57,12 +58,29 @@ QRect closeRect(const QRect &row)
     return QRect(row.right() - 36, row.center().y() - 14, 28, 28);
 }
 
+QRect pinRect(const QRect &row)
+{
+    return QRect(row.right() - 66, row.center().y() - 14, 28, 28);
+}
+
 QRect textRect(const QRect &row)
 {
     const QRect icon = iconRect(row);
-    const QRect close = closeRect(row);
-    return QRect(icon.right() + 12, row.top() + 6, close.left() - icon.right() - 20,
+    const QRect pin = pinRect(row);
+    return QRect(icon.right() + 12, row.top() + 6, pin.left() - icon.right() - 20,
                  row.height() - 12);
+}
+
+void drawPushpin(QPainter *painter, const QRect &rect, const QColor &color, bool pinned)
+{
+    painter->save();
+    painter->translate(rect.center());
+    painter->rotate(45.0);
+    painter->setPen(QPen(color, 1.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    painter->setBrush(pinned ? QBrush(color) : Qt::NoBrush);
+    painter->drawRoundedRect(QRectF(-4.5, -9.0, 9.0, 7.0), 3.0, 3.0);
+    painter->drawLine(QPointF(0.0, -2.0), QPointF(0.0, 7.5));
+    painter->restore();
 }
 
 bool mimeSupported(const QMimeData *mime)
@@ -169,6 +187,13 @@ public:
         const QRect subRect(text.left(), text.top() + 24, text.width(), 16);
         painter->drawText(subRect, Qt::AlignLeft | Qt::AlignVCenter, typeLabel(index));
 
+        const bool pinned = index.data(StagingModel::PinnedRole).toBool();
+        if (pinned || hovered) {
+            drawPushpin(painter, pinRect(option.rect),
+                        pinned ? QColor(120, 180, 255, 235) : QColor(255, 255, 255, 150),
+                        pinned);
+        }
+
         if (hovered) {
             const QRect close = closeRect(option.rect).adjusted(9, 9, -9, -9);
             painter->setPen(QPen(QColor(255, 255, 255, 170), 1.7, Qt::SolidLine, Qt::RoundCap));
@@ -192,6 +217,12 @@ public:
         if (checkRect(option.rect).contains(pos)) {
             auto *staging = static_cast<StagingModel *>(model);
             staging->setChecked(index.row(), !index.data(StagingModel::CheckedRole).toBool());
+            return true;
+        }
+
+        if (pinRect(option.rect).contains(pos)) {
+            auto *staging = static_cast<StagingModel *>(model);
+            staging->setPinned(index.row(), !index.data(StagingModel::PinnedRole).toBool());
             return true;
         }
 
@@ -259,7 +290,8 @@ protected:
         m_pressIndex = indexAt(m_pressPos);
         if (m_pressIndex.isValid()) {
             const QRect row = visualRect(m_pressIndex);
-            if (checkRect(row).contains(m_pressPos) || closeRect(row).contains(m_pressPos)) {
+            if (checkRect(row).contains(m_pressPos) || closeRect(row).contains(m_pressPos) ||
+                pinRect(row).contains(m_pressPos)) {
                 m_pressIndex = QModelIndex();
             }
         }
@@ -289,6 +321,10 @@ protected:
 
     void dragEnterEvent(QDragEnterEvent *event) override
     {
+        if (isOwnDrag(event->mimeData())) {
+            event->ignore();
+            return;
+        }
         if (mimeSupported(event->mimeData())) {
             event->acceptProposedAction();
             return;
@@ -298,6 +334,10 @@ protected:
 
     void dragMoveEvent(QDragMoveEvent *event) override
     {
+        if (isOwnDrag(event->mimeData())) {
+            event->ignore();
+            return;
+        }
         if (mimeSupported(event->mimeData())) {
             event->acceptProposedAction();
             updateHover(event->position().toPoint());
@@ -308,7 +348,7 @@ protected:
 
     void dropEvent(QDropEvent *event) override
     {
-        if (!mimeSupported(event->mimeData())) {
+        if (isOwnDrag(event->mimeData()) || !mimeSupported(event->mimeData())) {
             event->ignore();
             return;
         }
@@ -332,6 +372,11 @@ private:
         viewport()->update();
     }
 
+    static bool isOwnDrag(const QMimeData *mime)
+    {
+        return mime && mime->hasFormat(QStringLiteral("application/x-gxde-ai-see-staging"));
+    }
+
     void startDragForIndex(const QModelIndex &index)
     {
         if (!index.isValid()) {
@@ -341,8 +386,11 @@ private:
         const int type = index.data(StagingModel::TypeRole).toInt();
         const QString uri = index.data(StagingModel::UriRole).toString();
         const QString text = index.data(StagingModel::TextRole).toString();
+        const QString id = index.data(StagingModel::IdRole).toString();
+        const bool pinned = index.data(StagingModel::PinnedRole).toBool();
 
         auto *mime = new QMimeData;
+        mime->setData(QStringLiteral("application/x-gxde-ai-see-staging"), id.toUtf8());
         if (type == StagingItem::File || type == StagingItem::Image) {
             if (!uri.isEmpty()) {
                 mime->setUrls({QUrl::fromLocalFile(uri)});
@@ -364,7 +412,24 @@ private:
         if (!icon.isNull()) {
             drag->setPixmap(icon.pixmap(48, 48));
         }
-        drag->exec(Qt::CopyAction | Qt::MoveAction, Qt::CopyAction);
+
+        const Qt::DropAction action =
+            drag->exec(Qt::CopyAction | Qt::MoveAction, Qt::CopyAction);
+
+        /* Dragging an item out of the staging area consumes it unless it is
+         * pinned.  A cancelled drag (Esc / dropped on nothing) keeps it. */
+        if (action != Qt::IgnoreAction && !pinned) {
+            auto *staging = qobject_cast<StagingModel *>(model());
+            if (staging) {
+                for (int row = 0; row < staging->count(); ++row) {
+                    const StagingItem *item = staging->itemAt(row);
+                    if (item && item->id == id) {
+                        staging->removeRows(row, 1);
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     StagingDelegate *m_delegate = nullptr;
@@ -387,6 +452,14 @@ public:
     {
         setAcceptDrops(true);
         setMinimumHeight(190);
+
+        m_portalTimer.setSingleShot(true);
+        m_portalTimer.setInterval(150);
+        connect(&m_portalTimer, &QTimer::timeout, this, [this]() {
+            if (m_active) {
+                Q_EMIT portalRequested();
+            }
+        });
 
         m_chatButton = new QPushButton(tr("问问小埃 →"), this);
         m_chatButton->setCursor(Qt::PointingHandCursor);
@@ -411,8 +484,19 @@ public:
         connect(&m_hintTimer, &QTimer::timeout, m_hintLabel, &QLabel::hide);
     }
 
+    void showMessage(const QString &message) { showHint(message); }
+    void setPortalActive(bool active)
+    {
+        m_portalActive = active;
+        if (!active) {
+            m_portalTimer.stop();
+        }
+    }
+
 signals:
     void chatRequested();
+    void portalRequested();
+    void portalCancelled();
 
 protected:
     void resizeEvent(QResizeEvent *event) override
@@ -486,6 +570,9 @@ protected:
         }
         m_active = true;
         update();
+        if (!m_portalActive) {
+            m_portalTimer.start();
+        }
         event->acceptProposedAction();
     }
 
@@ -501,14 +588,20 @@ protected:
         Q_UNUSED(event)
         m_active = false;
         update();
+        m_portalTimer.stop();
     }
 
     void dropEvent(QDropEvent *event) override
     {
         m_active = false;
+        m_portalTimer.stop();
         update();
+        if (!m_portalActive) {
+            showHint(tr("悬停在「传送门」上，再移动到目标窗口"));
+            event->ignore();
+            return;
+        }
         event->acceptProposedAction();
-        showHint(tr("传送门将在接入合成器后可用"));
     }
 
 private:
@@ -522,8 +615,10 @@ private:
     QPushButton *m_chatButton = nullptr;
     QLabel *m_hintLabel = nullptr;
     QTimer m_hintTimer;
+    QTimer m_portalTimer;
     bool m_active = false;
     bool m_hover = false;
+    bool m_portalActive = false;
 };
 
 /* ------------------------------------------------------------------------- */
@@ -618,6 +713,21 @@ void PortalPanel::setupUi()
     m_zone->setFixedWidth(kZoneWidth);
     outer->addWidget(m_zone);
     connect(m_zone, &PortalZone::chatRequested, this, &PortalPanel::openChatRequested);
+    connect(m_zone, &PortalZone::portalRequested, this, [this]() {
+        PortalClient *portal = PortalClient::instance();
+        if (portal->beginPortal()) {
+            m_zone->setPortalActive(true);
+            m_zone->showMessage(tr("移动到目标窗口上松手"));
+        } else {
+            m_zone->showMessage(portal->available() ? tr("当前无已打开的窗口")
+                                                    : tr("当前环境不支持传送门"));
+        }
+    });
+    connect(m_zone, &PortalZone::portalCancelled, this, []() {
+        PortalClient::instance()->cancelPortal();
+    });
+    connect(PortalClient::instance(), &PortalClient::dragEnded, this,
+            [this]() { m_zone->setPortalActive(false); });
 
     auto *right = new QVBoxLayout;
     right->setContentsMargins(0, 0, 0, 0);

@@ -30,6 +30,7 @@ struct StagingItem
     QString text;  // full text (Text)
     QString name;  // display name
     bool checked = false;
+    bool pinned = false;
     qint64 createdAt = 0;
 
     bool exists() const;
