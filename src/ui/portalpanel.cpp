@@ -15,11 +15,17 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QDesktopServices>
+#include <QDir>
 #include <QFileDialog>
 #include <QMessageBox>
+#include <QMenu>
 #include <QProcess>
 #include <QStandardPaths>
-#include <QTemporaryDir>#include "staging/stagingitem.h"
+#include <QFile>
+#include <QMouseEvent>
+#include <QTemporaryDir>
+
+#include "staging/stagingitem.h"
 #include "staging/stagingmodel.h"
 
 #include <QApplication>
@@ -674,6 +680,12 @@ PortalPanel::PortalPanel(StagingModel *model, QWidget *parent)
     setupWindow();
     setupUi();
 
+    m_rightMargin = Config::instance()->getInt(QStringLiteral("panel/rightMargin"), 16);
+    m_bottomMargin = Config::instance()->getInt(QStringLiteral("panel/bottomMargin"), 16);
+    m_manualListHeight = Config::instance()->getInt(QStringLiteral("panel/listHeight"), 0);
+    m_fixedPosition = Config::instance()->getBool(QStringLiteral("panel/fixedPosition"), true);
+    m_fixedSize = Config::instance()->getBool(QStringLiteral("panel/fixedSize"), false);
+
     connect(m_model, &StagingModel::countChanged, this, [this]() {
         if (m_countLabel) {
             m_countLabel->setText(tr("%1 项").arg(m_model->count()));
@@ -724,7 +736,7 @@ void PortalPanel::setupWindow()
             anchors |= LayerShellQt::Window::AnchorRight;
             anchors |= LayerShellQt::Window::AnchorBottom;
             layer->setAnchors(anchors);
-            layer->setMargins(QMargins(0, 0, 16, 16));
+            layer->setMargins(QMargins(0, 0, m_rightMargin, m_bottomMargin));
             layer->setLayer(LayerShellQt::Window::LayerOverlay);
             layer->setKeyboardInteractivity(
                 LayerShellQt::Window::KeyboardInteractivityNone);
@@ -867,7 +879,8 @@ void PortalPanel::updateGeometryForContent()
     const int maxListHeight = qMax(120, screenHeight / 3);
 
     const int contentHeight = m_model->count() * kRowHeight + 8;
-    const int listHeight = qBound(140, contentHeight, maxListHeight);
+    const int wanted = m_manualListHeight > 0 ? m_manualListHeight : contentHeight;
+    const int listHeight = qBound(140, wanted, maxListHeight);
     m_view->setFixedHeight(listHeight);
 
     const int headerHeight = 26;
@@ -1086,10 +1099,205 @@ void PortalPanel::dismiss()
     hide();
 }
 
+void PortalPanel::applyMargins()
+{
+#ifdef GXDE_HAVE_LAYERSHELLQT
+    if (QGuiApplication::platformName().startsWith(QLatin1String("wayland"))) {
+        if (auto *layer = LayerShellQt::Window::get(windowHandle())) {
+            layer->setMargins(QMargins(0, 0, m_rightMargin, m_bottomMargin));
+            return;
+        }
+    }
+#endif
+    if (QScreen *scr = screen() ? screen() : QGuiApplication::primaryScreen()) {
+        const QRect available = scr->availableGeometry();
+        move(available.right() - width() - m_rightMargin,
+             available.bottom() - height() - m_bottomMargin);
+    }
+}
+
+void PortalPanel::saveWindowState()
+{
+    Config *config = Config::instance();
+    config->set(QStringLiteral("panel/rightMargin"), m_rightMargin);
+    config->set(QStringLiteral("panel/bottomMargin"), m_bottomMargin);
+    config->set(QStringLiteral("panel/listHeight"), m_manualListHeight);
+    config->set(QStringLiteral("panel/fixedPosition"), m_fixedPosition);
+    config->set(QStringLiteral("panel/fixedSize"), m_fixedSize);
+    config->sync();
+}
+
+void PortalPanel::mousePressEvent(QMouseEvent *event)
+{
+    if (event->button() != Qt::LeftButton) {
+        Dtk::Widget::DBlurEffectWidget::mousePressEvent(event);
+        return;
+    }
+
+    const QPoint pos = event->position().toPoint();
+    if (!m_fixedSize && pos.y() <= 10) {
+        m_dragMode = 2;
+        m_dragStart = pos;
+        m_resizeStartHeight = m_view->height();
+        event->accept();
+        return;
+    }
+    if (!m_fixedPosition) {
+        m_dragMode = 1;
+        m_dragStart = pos;
+        m_dragStartRight = m_rightMargin;
+        m_dragStartBottom = m_bottomMargin;
+        event->accept();
+        return;
+    }
+    Dtk::Widget::DBlurEffectWidget::mousePressEvent(event);
+}
+
+void PortalPanel::mouseMoveEvent(QMouseEvent *event)
+{
+    const QPoint pos = event->position().toPoint();
+
+    if (m_dragMode == 1) {
+        const QPoint delta = pos - m_dragStart;
+        m_rightMargin = qMax(0, m_dragStartRight - delta.x());
+        m_bottomMargin = qMax(0, m_dragStartBottom - delta.y());
+        applyMargins();
+        event->accept();
+        return;
+    }
+    if (m_dragMode == 2) {
+        const int delta = m_dragStart.y() - pos.y();
+        m_manualListHeight = qMax(120, m_resizeStartHeight + delta);
+        refreshLayout();
+        event->accept();
+        return;
+    }
+
+    if (!m_fixedSize && pos.y() <= 10) {
+        setCursor(Qt::SizeVerCursor);
+    } else if (!m_fixedPosition && pos.x() <= 10) {
+        setCursor(Qt::SizeAllCursor);
+    } else {
+        unsetCursor();
+    }
+    Dtk::Widget::DBlurEffectWidget::mouseMoveEvent(event);
+}
+
+void PortalPanel::mouseReleaseEvent(QMouseEvent *event)
+{
+    if (m_dragMode != 0) {
+        m_dragMode = 0;
+        saveWindowState();
+        event->accept();
+        return;
+    }
+    Dtk::Widget::DBlurEffectWidget::mouseReleaseEvent(event);
+}
+
+void PortalPanel::contextMenuEvent(QContextMenuEvent *event)
+{
+    showContextMenu(event->globalPos());
+    event->accept();
+}
+
+void PortalPanel::showContextMenu(const QPoint &globalPos)
+{
+    QMenu menu(this);
+
+    QAction *fixedPosition = menu.addAction(tr("固定位置"));
+    fixedPosition->setCheckable(true);
+    fixedPosition->setChecked(m_fixedPosition);
+
+    QAction *resetPosition = menu.addAction(tr("恢复默认位置"));
+
+    QAction *fixedSize = menu.addAction(tr("固定大小"));
+    fixedSize->setCheckable(true);
+    fixedSize->setChecked(m_fixedSize);
+
+    QAction *autoHideFullscreen = menu.addAction(tr("全屏时隐藏"));
+    autoHideFullscreen->setCheckable(true);
+    autoHideFullscreen->setChecked(
+        Config::instance()->getBool(QStringLiteral("panel/hideOnFullscreen"), false));
+
+    menu.addSeparator();
+
+    const QString slimy = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) +
+                          QStringLiteral("/GXDE/gxde-k9/slimy/gxde-ai-see.slimy");
+    QAction *autostart = menu.addAction(tr("开机自启与后台保活"));
+    autostart->setCheckable(true);
+    autostart->setChecked(QFile::exists(slimy));
+
+    menu.addSeparator();
+    QAction *clear = menu.addAction(tr("清空暂存区"));
+    QAction *about = menu.addAction(tr("关于"));
+    QAction *quit = menu.addAction(tr("退出"));
+
+    QAction *chosen = menu.exec(globalPos);
+    if (!chosen) {
+        return;
+    }
+
+    if (chosen == fixedPosition) {
+        m_fixedPosition = fixedPosition->isChecked();
+        saveWindowState();
+    } else if (chosen == resetPosition) {
+        m_rightMargin = 16;
+        m_bottomMargin = 16;
+        applyMargins();
+        saveWindowState();
+    } else if (chosen == fixedSize) {
+        m_fixedSize = fixedSize->isChecked();
+        saveWindowState();
+    } else if (chosen == autoHideFullscreen) {
+        Config::instance()->set(QStringLiteral("panel/hideOnFullscreen"),
+                                autoHideFullscreen->isChecked());
+        Config::instance()->sync();
+    } else if (chosen == autostart) {
+        const bool enable = autostart->isChecked();
+        QDir().mkpath(QFileInfo(slimy).absolutePath());
+        if (enable) {
+            QFile file(slimy);
+            if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                QTextStream out(&file);
+                out << "#!/bin/bash\n"
+                       "PID_DIR=\"${PID_DIR:-/tmp/GXDE/gxde-k9/}\"\n"
+                       "mkdir -p \"$PID_DIR\"\n"
+                       "PID_FILE=\"$PID_DIR/gxde-ai-see.pid\"\n"
+                       "if [ -f \"$PID_FILE\" ]; then\n"
+                       "  PID=$(cat \"$PID_FILE\" 2>/dev/null)\n"
+                       "  [ -n \"$PID\" ] && [ -e \"/proc/$PID\" ] && exit 0\n"
+                       "  rm -f \"$PID_FILE\"\n"
+                       "fi\n"
+                       "/usr/bin/gxde-ai-see --daemon >/dev/null 2>&1 &\n"
+                       "echo $! > \"$PID_FILE\"\n";
+                file.close();
+                file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+                                    QFileDevice::ExeOwner);
+            }
+        } else {
+            QFile::remove(slimy);
+        }
+        toast(enable ? tr("已开启开机自启与保活") : tr("已关闭开机自启与保活"));
+    } else if (chosen == clear) {
+        m_model->clearAll();
+    } else if (chosen == about) {
+        QMessageBox::about(
+            this, tr("关于小埃同学"),
+            tr("<h3>GXDE 小埃同学</h3><p>版本 %1</p>"
+               "<p>传送门、内容工厂、待办与小埃同学对话。</p>"
+               "<p>GPL-3.0-or-later · "
+               "<a href='https://gitee.com/GXDE-OS/gxde-ai-see'>gxde-ai-see</a></p>")
+                .arg(QCoreApplication::applicationVersion()));
+    } else if (chosen == quit) {
+        QCoreApplication::quit();
+    }
+}
+
 void PortalPanel::showEvent(QShowEvent *event)
 {
     Dtk::Widget::DBlurEffectWidget::showEvent(event);
     refreshLayout();
+    applyMargins();
 
     if (!QGuiApplication::platformName().startsWith(QLatin1String("wayland"))) {
         QScreen *scr = screen();

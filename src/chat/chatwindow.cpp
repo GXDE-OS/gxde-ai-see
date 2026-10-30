@@ -5,7 +5,9 @@
 
 #include "config.h"
 
+#include <QCheckBox>
 #include <QComboBox>
+#include <QDesktopServices>
 #include <QDateTime>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -23,12 +25,16 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMenu>
+#include <QMessageBox>
 #include <QMimeData>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSaveFile>
 #include <QScreen>
+#include <QSpinBox>
 #include <QShortcut>
+#include <QTextCursor>
 #include <QTextBrowser>
 #include <QUrl>
 #include <QUuid>
@@ -170,6 +176,42 @@ ChatWindow::ChatWindow(QWidget *parent)
         save();
         renderConversation();
     });
+    connect(m_client, &ChatClient::onceFinished, this, [this](const QString &summary) {
+        m_compressing = false;
+        if (m_current >= 0) {
+            ChatConversation &conversation = m_conversations[m_current];
+            const int keep = qMax(2, Config::instance()
+                                         ->getInt(QStringLiteral("chat/contextLength"), 40) /
+                                         4);
+            const int keepCount = qMin(keep, conversation.messages.size());
+            const QVector<ChatMessage> kept =
+                conversation.messages.mid(conversation.messages.size() - keepCount);
+            conversation.messages.clear();
+            conversation.messages.append(
+                ChatMessage{ QStringLiteral("system"),
+                             QStringLiteral("【此前对话摘要】\n") + summary });
+            conversation.messages += kept;
+            save();
+            renderConversation();
+        }
+        m_status->hide();
+        if (m_afterCompressSend) {
+            m_afterCompressSend = false;
+            m_skipCompress = true;
+            requestCompletion();
+        }
+    });
+    connect(m_client, &ChatClient::onceFailed, this, [this](const QString &error) {
+        m_compressing = false;
+        m_status->hide();
+        if (m_afterCompressSend) {
+            m_afterCompressSend = false;
+            m_skipCompress = true;
+            requestCompletion();
+        } else {
+            appendError(error);
+        }
+    });
     connect(m_client, &ChatClient::failed, this, [this](const QString &error) {
         if (m_current >= 0 && m_streamingIndex >= 0 &&
             m_streamingIndex < m_conversations[m_current].messages.size()) {
@@ -228,6 +270,20 @@ void ChatWindow::setupUi()
         "QPushButton:hover { background: rgba(120,180,255,0.28); color: white; }"));
     sidebarLayout->addWidget(newButton);
 
+    auto *menuButton = new QPushButton(tr("⋯ 更多"), sidebarPane);
+    menuButton->setCursor(Qt::PointingHandCursor);
+    menuButton->setStyleSheet(QStringLiteral(
+        "QPushButton { color: rgba(255,255,255,0.55); background: transparent;"
+        " border: none; padding: 2px; font-size: 12px; }"
+        "QPushButton:hover { color: white; }"));
+    auto *menu = new QMenu(menuButton);
+    menu->addAction(tr("压缩上下文"), this, [this]() { beginCompression(false); });
+    menu->addAction(tr("重试上一条"), this, &ChatWindow::retryLast);
+    menu->addSeparator();
+    menu->addAction(tr("关于"), this, &ChatWindow::showAbout);
+    menuButton->setMenu(menu);
+    sidebarLayout->addWidget(menuButton);
+
     auto *settingsButton = new QPushButton(tr("设置"), sidebarPane);
     settingsButton->setCursor(Qt::PointingHandCursor);
     settingsButton->setStyleSheet(QStringLiteral(
@@ -244,7 +300,7 @@ void ChatWindow::setupUi()
     rightLayout->setSpacing(10);
 
     m_view = new ChatView(right);
-    m_view->setOpenExternalLinks(true);
+    m_view->setOpenExternalLinks(false);
     m_view->setFrameShape(QFrame::NoFrame);
     m_view->setStyleSheet(QStringLiteral(
         "QTextBrowser { background: transparent; color: rgba(240,240,240,0.94);"
@@ -295,6 +351,7 @@ void ChatWindow::setupUi()
             &ChatWindow::handleDropOnConversation);
     connect(static_cast<ChatView *>(m_view), &ChatView::dropped, this,
             &ChatWindow::handleDroppedMime);
+    connect(m_view, &QTextBrowser::anchorClicked, this, &ChatWindow::handleAnchor);
 
     auto *sendShortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_Return), m_input);
     connect(sendShortcut, &QShortcut::activated, this, &ChatWindow::sendMessage);
@@ -444,7 +501,8 @@ void ChatWindow::renderConversation()
                     .arg(escapedHtml(conversation.title));
     }
 
-    for (const ChatMessage &message : conversation.messages) {
+    for (int i = 0; i < conversation.messages.size(); ++i) {
+        const ChatMessage &message = conversation.messages.at(i);
         const QString role = message.role == QStringLiteral("user") ? tr("你") : tr("小埃");
         const QString cssClass =
             message.role == QStringLiteral("user") ? QStringLiteral("user")
@@ -452,6 +510,17 @@ void ChatWindow::renderConversation()
         html += QStringLiteral("<div class='role'>%1</div>").arg(role);
         html += QStringLiteral("<div class='%1'>%2</div>")
                     .arg(cssClass, escapedHtml(message.content));
+
+        html += QStringLiteral("<div class='actions'>");
+        if (message.role == QStringLiteral("user")) {
+            html += QStringLiteral("<a href='gxde-ai-see:edit/%1'>编辑</a>").arg(i);
+        } else if (message.role == QStringLiteral("assistant")) {
+            html += QStringLiteral("<a href='gxde-ai-see:fork/%1'>分支</a>").arg(i);
+            if (i == conversation.messages.size() - 1) {
+                html += QStringLiteral(" · <a href='gxde-ai-see:retry'>重试</a>");
+            }
+        }
+        html += QStringLiteral("</div>");
     }
 
     if (m_client->busy() && m_streamingIndex >= 0) {
@@ -466,7 +535,7 @@ void ChatWindow::renderConversation()
 
 void ChatWindow::sendMessage()
 {
-    if (m_client->busy()) {
+    if (m_client->busy() || m_compressing) {
         return;
     }
     const QString text = m_input->toPlainText().trimmed();
@@ -482,15 +551,40 @@ void ChatWindow::sendMessage()
         conversation.title = text.left(24);
     }
     conversation.messages.append(ChatMessage{ QStringLiteral("user"), text });
-    conversation.messages.append(ChatMessage{ QStringLiteral("assistant"), QString() });
     conversation.updatedAt = QDateTime::currentMSecsSinceEpoch();
-    m_streamingIndex = conversation.messages.size() - 1;
+    m_skipCompress = false;
 
     m_input->clear();
     m_status->hide();
-    m_sendButton->setEnabled(false);
     updateSidebar();
+    requestCompletion();
+}
+
+void ChatWindow::requestCompletion()
+{
+    if (m_current < 0) {
+        return;
+    }
+
+    if (needsCompression()) {
+        beginCompression(true);
+        return;
+    }
+
+    ChatConversation &conversation = m_conversations[m_current];
+    conversation.messages.append(ChatMessage{ QStringLiteral("assistant"), QString() });
+    m_streamingIndex = conversation.messages.size() - 1;
+    m_sendButton->setEnabled(false);
     renderConversation();
+    sendPayload();
+}
+
+void ChatWindow::sendPayload()
+{
+    if (m_current < 0) {
+        return;
+    }
+    const ChatConversation &conversation = m_conversations[m_current];
 
     QVector<ChatMessage> payload;
     const QString systemPrompt =
@@ -498,10 +592,187 @@ void ChatWindow::sendMessage()
     if (!systemPrompt.isEmpty()) {
         payload.append(ChatMessage{ QStringLiteral("system"), systemPrompt });
     }
-    for (int i = 0; i < conversation.messages.size() - 1; ++i) {
+
+    const int keep = Config::instance()->getInt(QStringLiteral("chat/contextLength"), 40);
+    int start = 0;
+    if (keep > 0 && conversation.messages.size() > keep) {
+        start = conversation.messages.size() - keep;
+    }
+    for (int i = start; i < conversation.messages.size() - 1; ++i) {
         payload.append(conversation.messages.at(i));
     }
+
     m_client->send(payload);
+}
+
+bool ChatWindow::needsCompression() const
+{
+    if (m_current < 0 || m_skipCompress) {
+        return false;
+    }
+    if (!Config::instance()->getBool(QStringLiteral("chat/autoCompress"), true)) {
+        return false;
+    }
+    const int keep = Config::instance()->getInt(QStringLiteral("chat/contextLength"), 40);
+    return m_conversations.at(m_current).messages.size() > keep + 4;
+}
+
+void ChatWindow::beginCompression(bool thenSend)
+{
+    if (m_current < 0 || m_compressing) {
+        return;
+    }
+    ChatConversation &conversation = m_conversations[m_current];
+    const int keep = qMax(2, Config::instance()
+                                  ->getInt(QStringLiteral("chat/contextLength"), 40) /
+                                  4);
+    if (conversation.messages.size() <= keep + 2) {
+        if (thenSend) {
+            m_skipCompress = true;
+            requestCompletion();
+        }
+        return;
+    }
+
+    const QVector<ChatMessage> older =
+        conversation.messages.mid(0, conversation.messages.size() - keep);
+    QString transcript;
+    for (const ChatMessage &message : older) {
+        transcript += (message.role == QStringLiteral("user") ? QStringLiteral("用户：")
+                                                              : QStringLiteral("助手："));
+        transcript += message.content;
+        transcript += QLatin1Char('\n');
+    }
+    transcript = transcript.left(20000);
+
+    QVector<ChatMessage> request;
+    request.append(ChatMessage{
+        QStringLiteral("system"),
+        QStringLiteral("你是一个对话摘要助手。请用中文把下面的对话压缩成要点，保留事实、结论、"
+                       "待办和用户偏好，不要编造。") });
+    request.append(ChatMessage{ QStringLiteral("user"), transcript });
+
+    m_compressing = true;
+    m_afterCompressSend = thenSend;
+    m_status->setText(tr("正在压缩上下文…"));
+    m_status->show();
+    m_client->sendOnce(request);
+}
+
+void ChatWindow::editMessage(int index)
+{
+    if (m_client->busy() || m_compressing || m_current < 0) {
+        return;
+    }
+    ChatConversation &conversation = m_conversations[m_current];
+    if (index < 0 || index >= conversation.messages.size()) {
+        return;
+    }
+    if (conversation.messages.at(index).role != QStringLiteral("user")) {
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("编辑消息"));
+    dialog.setMinimumWidth(520);
+    auto *layout = new QVBoxLayout(&dialog);
+    auto *edit = new QPlainTextEdit(&dialog);
+    edit->setPlainText(conversation.messages.at(index).content);
+    edit->setFixedHeight(160);
+    layout->addWidget(edit);
+    auto *buttons =
+        new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout->addWidget(buttons);
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    const QString text = edit->toPlainText().trimmed();
+    if (text.isEmpty()) {
+        return;
+    }
+
+    conversation.messages = conversation.messages.mid(0, index);
+    conversation.messages.append(ChatMessage{ QStringLiteral("user"), text });
+    conversation.updatedAt = QDateTime::currentMSecsSinceEpoch();
+    save();
+    updateSidebar();
+    requestCompletion();
+}
+
+void ChatWindow::retryLast()
+{
+    if (m_client->busy() || m_compressing || m_current < 0) {
+        return;
+    }
+    ChatConversation &conversation = m_conversations[m_current];
+    int lastUser = -1;
+    for (int i = conversation.messages.size() - 1; i >= 0; --i) {
+        if (conversation.messages.at(i).role == QStringLiteral("user")) {
+            lastUser = i;
+            break;
+        }
+    }
+    if (lastUser < 0) {
+        return;
+    }
+    conversation.messages = conversation.messages.mid(0, lastUser + 1);
+    requestCompletion();
+}
+
+void ChatWindow::forkFrom(int index)
+{
+    if (m_current < 0) {
+        return;
+    }
+    const ChatConversation &source = m_conversations[m_current];
+    if (index < 0 || index >= source.messages.size()) {
+        return;
+    }
+
+    ChatConversation copy;
+    copy.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    copy.title = tr("%1 · 分支").arg(source.title);
+    copy.updatedAt = QDateTime::currentMSecsSinceEpoch();
+    copy.messages = source.messages.mid(0, index + 1);
+
+    m_conversations.prepend(copy);
+    m_current = 0;
+    updateSidebar();
+    save();
+    renderConversation();
+}
+
+void ChatWindow::handleAnchor(const QUrl &url)
+{
+    const QString target = url.toString();
+    if (target.startsWith(QStringLiteral("http://")) ||
+        target.startsWith(QStringLiteral("https://"))) {
+        QDesktopServices::openUrl(url);
+        return;
+    }
+    if (target.startsWith(QStringLiteral("gxde-ai-see:edit/"))) {
+        editMessage(target.section(QLatin1Char('/'), -1).toInt());
+    } else if (target.startsWith(QStringLiteral("gxde-ai-see:fork/"))) {
+        forkFrom(target.section(QLatin1Char('/'), -1).toInt());
+    } else if (target == QStringLiteral("gxde-ai-see:retry")) {
+        retryLast();
+    }
+}
+
+void ChatWindow::showAbout()
+{
+    QMessageBox::about(
+        this, tr("关于小埃同学"),
+        tr("<h3>GXDE 小埃同学</h3>"
+           "<p>版本 %1</p>"
+           "<p>GXDE 桌面的 AI 助手：传送门、内容工厂、待办与对话。</p>"
+           "<p>许可证：GPL-3.0-or-later<br/>"
+           "仓库：<a href='https://gitee.com/GXDE-OS/gxde-ai-see'>"
+           "gitee.com/GXDE-OS/gxde-ai-see</a></p>")
+            .arg(QCoreApplication::applicationVersion()));
 }
 
 void ChatWindow::appendError(const QString &message)
@@ -544,6 +815,17 @@ void ChatWindow::openSettings()
                                  .toString());
     form->addRow(tr("模型"), modelBox);
 
+    auto *contextSpin = new QSpinBox(&dialog);
+    contextSpin->setRange(4, 200);
+    contextSpin->setValue(
+        Config::instance()->getInt(QStringLiteral("chat/contextLength"), 40));
+    form->addRow(tr("上下文条数"), contextSpin);
+
+    auto *autoCompressBox = new QCheckBox(tr("超出后自动压缩旧消息"), &dialog);
+    autoCompressBox->setChecked(
+        Config::instance()->getBool(QStringLiteral("chat/autoCompress"), true));
+    form->addRow(QString(), autoCompressBox);
+
     auto *systemEdit = new QPlainTextEdit(&dialog);
     systemEdit->setFixedHeight(80);
     systemEdit->setPlainText(Config::instance()
@@ -574,6 +856,9 @@ void ChatWindow::openSettings()
         Config::instance()->set(QStringLiteral("chat/model"), modelBox->currentText());
         Config::instance()->set(QStringLiteral("chat/systemPrompt"),
                                 systemEdit->toPlainText());
+        Config::instance()->set(QStringLiteral("chat/contextLength"), contextSpin->value());
+        Config::instance()->set(QStringLiteral("chat/autoCompress"),
+                                autoCompressBox->isChecked());
         Config::instance()->sync();
         renderConversation();
     }

@@ -40,6 +40,10 @@ signals:
 
 protected:
     void showEvent(QShowEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
+    void contextMenuEvent(QContextMenuEvent *event) override;
 
 private:
     void setupUi();
@@ -51,6 +55,9 @@ private:
     void runFactoryAction(const QString &id, const DropContent &content);
     void showTextDialog(const QString &title, const QString &text);
     void toast(const QString &text);
+    void applyMargins();
+    void saveWindowState();
+    void showContextMenu(const QPoint &globalPos);
 
     StagingModel *m_model = nullptr;
     StagingView *m_view = nullptr;
@@ -64,4 +71,15 @@ private:
     QPushButton *m_selectAllButton = nullptr;
     QPushButton *m_invertButton = nullptr;
     QPushButton *m_deleteButton = nullptr;
+
+    int m_rightMargin = 16;
+    int m_bottomMargin = 16;
+    int m_manualListHeight = 0;
+    bool m_fixedPosition = true;
+    bool m_fixedSize = false;
+    int m_dragMode = 0; // 0 none, 1 move, 2 resize
+    QPoint m_dragStart;
+    int m_dragStartRight = 0;
+    int m_dragStartBottom = 0;
+    int m_resizeStartHeight = 0;
 };

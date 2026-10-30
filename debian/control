@@ -1,0 +1,26 @@
+Source: gxde-ai-see
+Section: utils
+Priority: optional
+Maintainer: shenmo <shenmo@spark-app.store>
+Build-Depends: debhelper-compat (= 13),
+               cmake,
+               ninja-build,
+               pkg-config,
+               qt6-base-dev,
+               qt6-base-dev-tools,
+               qt6-svg-dev,
+               libdtk6core-dev,
+               libdtk2widget6-dev,
+               liblayershellqtinterface-dev,
+               libicu-dev
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+Homepage: https://gitee.com/GXDE-OS/gxde-ai-see
+
+Package: gxde-ai-see
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Recommends: gxde-k9
+Description: GXDE AI See - 小埃同学
+ GXDE 桌面的 AI 助手：传送门、内容工厂、待办与小埃同学对话。
+ 支持拖拽暂存、原生 drop 到目标窗口，以及 DeepSeek / 自定义 API 的流式对话。

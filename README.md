@@ -6,7 +6,7 @@
 它把「拖拽」变成贯穿整个桌面的动作：拖到 **传送门**，选一个窗口，内容就落进那个窗口的输入框；
 拖到 **内容工厂**，按类型分词、提链接、翻译、OCR、加待办、问小埃；拖进 **暂存区**，东西先放着，随时再拖出去。
 
-> 当前状态：**方案评审中（v0.2）**，代码尚未开始。设计文档见 [docs/PLAN.md](docs/PLAN.md)。
+> 当前状态：**0.1.0 初版**，可安装试用。设计文档见 [docs/PLAN.md](docs/PLAN.md)。
 
 ---
 
@@ -106,14 +106,33 @@
 
 ## 🔨 构建
 
-尚未开始编码；构建说明会在 M1 完成后补充：
+依赖：Qt 6.8、dtk2widget 6、LayerShellQt 6、ICU、Wayland。
 
 ```bash
-cmake -B build -G Ninja
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
+sudo cmake --install build          # 安装程序、desktop 与图标
 ```
 
-依赖（计划）：Qt 6.8、dtk2widget 6、LayerShellQt 6、Wayland、ICU、SQLite。
+打 deb：
+
+```bash
+dpkg-buildpackage -b -us -uc
+```
+
+## 🚀 使用
+
+```bash
+gxde-ai-see --show     # 打开传送门面板
+gxde-ai-see --chat     # 打开小埃同学对话
+gxde-ai-see --todo     # 打开待办
+gxde-ai-see --daemon   # 后台常驻（由 gxde-k9 拉起）
+```
+
+- 首次对话：`--chat` → 左下「设置」→ 填 DeepSeek API Key。
+- 传送门需要 GXDE Wayland 合成器（flake-wm / gxde-wlcom）配合，见
+  [方案 §4](docs/PLAN.md)；其他环境自动降级。
+- 面板右键菜单：固定位置/大小、恢复默认位置、开机自启与保活、清空、关于。
 
 ---
 

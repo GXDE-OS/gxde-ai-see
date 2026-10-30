@@ -15,7 +15,10 @@ struct ChatMessage
 };
 
 /**
- * Minimal streaming client for the DeepSeek (OpenAI compatible) chat API.
+ * Minimal client for the DeepSeek (OpenAI compatible) chat API.
+ *
+ * \a send streams (SSE), \a sendOnce performs a non streaming request used for
+ * context compression and other housekeeping calls.
  */
 class ChatClient : public QObject
 {
@@ -26,12 +29,15 @@ public:
 
     bool busy() const { return m_reply != nullptr; }
     void send(const QVector<ChatMessage> &messages);
+    void sendOnce(const QVector<ChatMessage> &messages);
     void cancel();
 
 signals:
     void delta(const QString &text);
     void finished(const QString &text);
     void failed(const QString &error);
+    void onceFinished(const QString &text);
+    void onceFailed(const QString &error);
 
 private:
     void handleReadyRead();
@@ -40,6 +46,7 @@ private:
 
     QNetworkAccessManager m_manager;
     class QNetworkReply *m_reply = nullptr;
+    class QNetworkReply *m_onceReply = nullptr;
     QByteArray m_buffer;
     QString m_fullText;
     bool m_done = false;

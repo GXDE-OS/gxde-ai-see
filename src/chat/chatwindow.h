@@ -14,6 +14,7 @@ class QPlainTextEdit;
 class QPushButton;
 class QTextBrowser;
 class QMimeData;
+class QUrl;
 
 struct ChatConversation
 {
@@ -56,6 +57,15 @@ private:
     void renderConversation();
     void updateSidebar();
     void sendMessage();
+    void requestCompletion();
+    void sendPayload();
+    void editMessage(int index);
+    void retryLast();
+    void forkFrom(int index);
+    void beginCompression(bool thenSend);
+    void handleAnchor(const QUrl &url);
+    void showAbout();
+    bool needsCompression() const;
     void openSettings();
     void appendError(const QString &message);
     int currentIndex() const { return m_current; }
@@ -70,5 +80,8 @@ private:
     QVector<ChatConversation> m_conversations;
     int m_current = -1;
     int m_streamingIndex = -1;
+    bool m_compressing = false;
+    bool m_afterCompressSend = false;
+    bool m_skipCompress = false;
     QString m_storePath;
 };

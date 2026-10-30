@@ -12,24 +12,16 @@
 
 #include "config.h"
 
-ChatClient::ChatClient(QObject *parent)
-    : QObject(parent)
-{
-    m_manager.setRedirectPolicy(QNetworkRequest::NoLessSafeRedirectPolicy);
-}
+namespace {
 
-void ChatClient::send(const QVector<ChatMessage> &messages)
+bool prepareRequest(const QVector<ChatMessage> &messages, bool stream,
+                    QNetworkRequest *request, QByteArray *body, QString *error)
 {
-    cancel();
-    m_buffer.clear();
-    m_fullText.clear();
-    m_done = false;
-
     const QString apiKey =
         Config::instance()->get(QStringLiteral("chat/apiKey")).toString().trimmed();
     if (apiKey.isEmpty()) {
-        Q_EMIT failed(tr("还没有配置 API Key。请先点右上角设置，填入 DeepSeek API Key。"));
-        return;
+        *error = QObject::tr("还没有配置 API Key。请先点右上角设置，填入 DeepSeek API Key。");
+        return false;
     }
 
     QString baseUrl = Config::instance()
@@ -44,11 +36,6 @@ void ChatClient::send(const QVector<ChatMessage> &messages)
         baseUrl += QStringLiteral("/chat/completions");
     }
 
-    const QString model = Config::instance()
-                              ->get(QStringLiteral("chat/model"),
-                                    QStringLiteral("deepseek-chat"))
-                              .toString();
-
     QJsonArray jsonMessages;
     for (const ChatMessage &message : messages) {
         QJsonObject object;
@@ -57,33 +44,133 @@ void ChatClient::send(const QVector<ChatMessage> &messages)
         jsonMessages.append(object);
     }
 
-    QJsonObject body;
-    body.insert(QStringLiteral("model"), model);
-    body.insert(QStringLiteral("messages"), jsonMessages);
-    body.insert(QStringLiteral("stream"), true);
-    body.insert(QStringLiteral("temperature"), 0.7);
+    QJsonObject payload;
+    payload.insert(QStringLiteral("model"),
+                   Config::instance()
+                       ->get(QStringLiteral("chat/model"), QStringLiteral("deepseek-chat"))
+                       .toString());
+    payload.insert(QStringLiteral("messages"), jsonMessages);
+    payload.insert(QStringLiteral("stream"), stream);
+    payload.insert(QStringLiteral("temperature"), 0.7);
 
-    QNetworkRequest request{QUrl(baseUrl)};
-    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
-    request.setRawHeader("Authorization", "Bearer " + apiKey.toUtf8());
-    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
-                         QNetworkRequest::NoLessSafeRedirectPolicy);
+    *request = QNetworkRequest{QUrl(baseUrl)};
+    request->setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    request->setRawHeader("Authorization", "Bearer " + apiKey.toUtf8());
+    request->setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                          QNetworkRequest::NoLessSafeRedirectPolicy);
+    *body = QJsonDocument(payload).toJson(QJsonDocument::Compact);
+    return true;
+}
 
-    m_reply = m_manager.post(request, QJsonDocument(body).toJson(QJsonDocument::Compact));
+QString errorFromBody(const QByteArray &body, const QString &fallback)
+{
+    const QJsonDocument document = QJsonDocument::fromJson(body);
+    if (document.isObject()) {
+        const QString detail = document.object()
+                                   .value(QStringLiteral("error"))
+                                   .toObject()
+                                   .value(QStringLiteral("message"))
+                                   .toString();
+        if (!detail.isEmpty()) {
+            return detail;
+        }
+    }
+    return fallback;
+}
+
+} // namespace
+
+ChatClient::ChatClient(QObject *parent)
+    : QObject(parent)
+{
+    m_manager.setRedirectPolicy(QNetworkRequest::NoLessSafeRedirectPolicy);
+}
+
+void ChatClient::send(const QVector<ChatMessage> &messages)
+{
+    cancel();
+    m_buffer.clear();
+    m_fullText.clear();
+    m_done = false;
+
+    QNetworkRequest request;
+    QByteArray body;
+    QString error;
+    if (!prepareRequest(messages, true, &request, &body, &error)) {
+        Q_EMIT failed(error);
+        return;
+    }
+
+    m_reply = m_manager.post(request, body);
     connect(m_reply, &QNetworkReply::readyRead, this, &ChatClient::handleReadyRead);
     connect(m_reply, &QNetworkReply::finished, this, &ChatClient::handleFinished);
 }
 
-void ChatClient::cancel()
+void ChatClient::sendOnce(const QVector<ChatMessage> &messages)
 {
-    if (!m_reply) {
+    if (m_onceReply) {
+        m_onceReply->abort();
+        m_onceReply->deleteLater();
+        m_onceReply = nullptr;
+    }
+
+    QNetworkRequest request;
+    QByteArray body;
+    QString error;
+    if (!prepareRequest(messages, false, &request, &body, &error)) {
+        Q_EMIT onceFailed(error);
         return;
     }
-    QNetworkReply *reply = m_reply;
-    m_reply = nullptr;
-    reply->disconnect(this);
-    reply->abort();
-    reply->deleteLater();
+
+    m_onceReply = m_manager.post(request, body);
+    connect(m_onceReply, &QNetworkReply::finished, this, [this]() {
+        if (!m_onceReply) {
+            return;
+        }
+        QNetworkReply *reply = m_onceReply;
+        m_onceReply = nullptr;
+
+        if (reply->error() != QNetworkReply::NoError) {
+            Q_EMIT onceFailed(errorFromBody(reply->readAll(), reply->errorString()));
+            reply->deleteLater();
+            return;
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(reply->readAll());
+        const QJsonArray choices =
+            document.object().value(QStringLiteral("choices")).toArray();
+        if (choices.isEmpty()) {
+            Q_EMIT onceFailed(tr("模型没有返回内容"));
+            reply->deleteLater();
+            return;
+        }
+        const QString content = choices.first()
+                                    .toObject()
+                                    .value(QStringLiteral("message"))
+                                    .toObject()
+                                    .value(QStringLiteral("content"))
+                                    .toString();
+        Q_EMIT onceFinished(content);
+        reply->deleteLater();
+    });
+}
+
+void ChatClient::cancel()
+{
+    if (m_reply) {
+        QNetworkReply *reply = m_reply;
+        m_reply = nullptr;
+        reply->disconnect(this);
+        reply->abort();
+        reply->deleteLater();
+    }
+    if (m_onceReply) {
+        QNetworkReply *reply = m_onceReply;
+        m_onceReply = nullptr;
+        reply->disconnect(this);
+        reply->abort();
+        reply->deleteLater();
+    }
 }
 
 void ChatClient::handleReadyRead()
@@ -148,18 +235,9 @@ void ChatClient::handleFinished()
     m_reply = nullptr;
 
     const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    if (reply->error() != QNetworkReply::NoError && reply->error() != QNetworkReply::OperationCanceledError) {
-        const QByteArray body = reply->readAll();
-        QString message = reply->errorString();
-        const QJsonDocument document = QJsonDocument::fromJson(body);
-        if (document.isObject()) {
-            const QJsonObject error =
-                document.object().value(QStringLiteral("error")).toObject();
-            const QString detail = error.value(QStringLiteral("message")).toString();
-            if (!detail.isEmpty()) {
-                message = detail;
-            }
-        }
+    if (reply->error() != QNetworkReply::NoError &&
+        reply->error() != QNetworkReply::OperationCanceledError) {
+        QString message = errorFromBody(reply->readAll(), reply->errorString());
         if (status == 401) {
             message = tr("API Key 无效或已过期");
         }
@@ -168,7 +246,6 @@ void ChatClient::handleFinished()
         return;
     }
 
-    /* flush a final partial line */
     if (!m_buffer.isEmpty()) {
         QByteArray line = m_buffer.trimmed();
         if (line.startsWith("data:")) {
