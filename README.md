@@ -139,6 +139,7 @@ gxde-ai-see --daemon   # 后台常驻（由 gxde-k9 拉起）
 ## 📄 文档
 
 - [设计方案（v0.2）](docs/PLAN.md)
+- 翻译：`translations/gxde-ai-see_en.ts`（`lupdate src -ts translations/gxde-ai-see_en.ts` 更新，`lrelease` 生成 .qm）
 
 ---
 

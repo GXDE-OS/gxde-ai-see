@@ -4,6 +4,9 @@
 #include <DApplication>
 #include <QCommandLineOption>
 #include <QCommandLineParser>
+#include <QLocale>
+#include <QStandardPaths>
+#include <QTranslator>
 
 #include "app.h"
 
@@ -17,6 +20,26 @@ int main(int argc, char *argv[])
     app.setApplicationDisplayName(QStringLiteral("GXDE 小埃同学"));
     app.setApplicationVersion(QStringLiteral("0.1.0"));
     app.setQuitOnLastWindowClosed(false);
+
+    const QString locale = QLocale::system().name();
+    auto *translator = new QTranslator(&app);
+    const QStringList translationDirs = {
+        QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+            + QStringLiteral("/translations"),
+        QStringLiteral("/usr/share/gxde-ai-see/translations"),
+        QStringLiteral("/usr/local/share/gxde-ai-see/translations"),
+    };
+    bool translated = false;
+    for (const QString &dir : translationDirs) {
+        if (translator->load(QStringLiteral("gxde-ai-see_") + locale, dir) ||
+            translator->load(QStringLiteral("gxde-ai-see_") + locale.section(QLatin1Char('_'), 0, 0),
+                             dir)) {
+            app.installTranslator(translator);
+            translated = true;
+            break;
+        }
+    }
+    Q_UNUSED(translated)
 
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("GXDE 小埃同学"));

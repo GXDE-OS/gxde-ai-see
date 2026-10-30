@@ -82,6 +82,26 @@ add_executable(gxde-ai-see-mcptest
 target_include_directories(gxde-ai-see-mcptest PRIVATE src)
 target_link_libraries(gxde-ai-see-mcptest PRIVATE Qt6::Core)
 
+# translations
+find_program(LRELEASE_EXECUTABLE NAMES lrelease lrelease6)
+file(GLOB TS_FILES ${CMAKE_CURRENT_SOURCE_DIR}/translations/*.ts)
+if (LRELEASE_EXECUTABLE AND TS_FILES)
+    set(QM_FILES)
+    foreach(ts ${TS_FILES})
+        get_filename_component(ts_name ${ts} NAME_WE)
+        set(qm ${CMAKE_CURRENT_BINARY_DIR}/translations/${ts_name}.qm)
+        add_custom_command(OUTPUT ${qm}
+            COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/translations
+            COMMAND ${LRELEASE_EXECUTABLE} ${ts} -qm ${qm}
+            DEPENDS ${ts}
+            VERBATIM)
+        list(APPEND QM_FILES ${qm})
+    endforeach()
+    add_custom_target(gxde-ai-see-translations ALL DEPENDS ${QM_FILES})
+    add_dependencies(gxde-ai-see gxde-ai-see-translations)
+    install(FILES ${QM_FILES} DESTINATION share/gxde-ai-see/translations)
+endif()
+
 install(TARGETS gxde-ai-see RUNTIME DESTINATION bin)
 install(FILES data/gxde-ai-see.desktop data/gxde-ai-see-todo.desktop DESTINATION share/applications)
 install(DIRECTORY data/icons/ DESTINATION share/icons/hicolor)
