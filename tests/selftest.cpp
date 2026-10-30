@@ -6,6 +6,7 @@
 #include <QCoreApplication>
 #include <QDebug>
 #include <QTextStream>
+#include <QTranslator>
 
 #include "actions/texttools.h"
 #include "factory/contentclassifier.h"
@@ -38,6 +39,22 @@ static bool hasAction(const QVector<FactoryAction> &actions, const QString &id)
 int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
+
+    if (qEnvironmentVariableIsSet("GXDE_AI_SEE_QM")) {
+        auto *translator = new QTranslator(&app);
+        if (translator->load(QString::fromLocal8Bit(qgetenv("GXDE_AI_SEE_QM")))) {
+            app.installTranslator(translator);
+            check(QCoreApplication::translate("PortalPanel", "暂存区")
+                      == QStringLiteral("Staging"),
+                  "english translation: PortalPanel/暂存区");
+            check(QCoreApplication::translate("ChatWindow", "发送") == QStringLiteral("Send"),
+                  "english translation: ChatWindow/发送");
+            check(QCoreApplication::translate("TodoWindow", "待办") == QStringLiteral("Todo"),
+                  "english translation: TodoWindow/待办");
+        } else {
+            check(false, "load english .qm");
+        }
+    }
 
     // http link with a video extension
     const LinkInfo video = LinkTools::parse(QStringLiteral("https://example.com/media/clip.mp4"));
