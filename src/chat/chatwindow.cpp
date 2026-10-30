@@ -6,6 +6,8 @@
 #include "config.h"
 
 #include <QCheckBox>
+#include <QClipboard>
+#include <QApplication>
 #include <QComboBox>
 #include <QDesktopServices>
 #include <QDateTime>
@@ -30,6 +32,7 @@
 #include <QMimeData>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QSaveFile>
 #include <QScreen>
 #include <QSpinBox>
@@ -51,6 +54,65 @@ QString escapedHtml(const QString &text)
 {
     QString html = text.toHtmlEscaped();
     html.replace(QLatin1Char('\n'), QStringLiteral("<br/>"));
+    return html;
+}
+
+/** Lightweight Markdown to HTML for assistant messages. */
+QString renderInline(QString text)
+{
+    text = text.toHtmlEscaped();
+    text.replace(QRegularExpression(QStringLiteral("`([^`]+)`")),
+                 QStringLiteral("<code>\\1</code>"));
+    text.replace(QRegularExpression(QStringLiteral("\\*\\*([^*]+)\\*\\*")),
+                 QStringLiteral("<b>\\1</b>"));
+    text.replace(QRegularExpression(QStringLiteral("\\[([^\\]]+)\\]\\((https?://[^)\\s]+)\\)")),
+                 QStringLiteral("<a href=\"\\2\">\\1</a>"));
+    text.replace(QRegularExpression(QStringLiteral("(^|[\\s(])(https?://[^\\s<]+)")),
+                 QStringLiteral("\\1<a href=\"\\2\">\\2</a>"));
+    return text;
+}
+
+QString markdownToHtml(const QString &markdown)
+{
+    QString html;
+    QString code;
+    bool inCode = false;
+
+    const QStringList lines = markdown.split(QLatin1Char('\n'));
+    for (const QString &line : lines) {
+        if (line.trimmed().startsWith(QStringLiteral("```"))) {
+            if (inCode) {
+                html += QStringLiteral("<pre><code>%1</code></pre>").arg(code.toHtmlEscaped());
+                code.clear();
+            }
+            inCode = !inCode;
+            continue;
+        }
+        if (inCode) {
+            code += line;
+            code += QLatin1Char('\n');
+            continue;
+        }
+
+        if (line.startsWith(QStringLiteral("### "))) {
+            html += QStringLiteral("<h3>%1</h3>").arg(renderInline(line.mid(4)));
+        } else if (line.startsWith(QStringLiteral("## "))) {
+            html += QStringLiteral("<h2>%1</h2>").arg(renderInline(line.mid(3)));
+        } else if (line.startsWith(QStringLiteral("# "))) {
+            html += QStringLiteral("<h2>%1</h2>").arg(renderInline(line.mid(2)));
+        } else if (line.startsWith(QStringLiteral("- ")) ||
+                   line.startsWith(QStringLiteral("* "))) {
+            html += QStringLiteral("<div class='li'>• %1</div>").arg(renderInline(line.mid(2)));
+        } else if (line.trimmed().isEmpty()) {
+            html += QStringLiteral("<div class='gap'></div>");
+        } else {
+            html += QStringLiteral("<div>%1</div>").arg(renderInline(line));
+        }
+    }
+
+    if (inCode) {
+        html += QStringLiteral("<pre><code>%1</code></pre>").arg(code.toHtmlEscaped());
+    }
     return html;
 }
 
@@ -477,7 +539,9 @@ void ChatWindow::renderConversation()
     html += QStringLiteral(
         "<style>body{color:#e9e9e9;font-size:14px;} .role{font-size:11px;color:#8a8a8a;"
         "margin-top:14px;} .user{color:#9ecbff;} .assistant{color:#efefef;}"
-        ".welcome{color:#b9b9b9;line-height:1.6;} code{background:rgba(255,255,255,0.1);"
+        ".welcome{color:#b9b9b9;line-height:1.6;} pre{background:rgba(255,255,255,0.07);"
+        "padding:8px;border-radius:6px;} h1,h2,h3{margin:8px 0 4px 0;} .li{margin-left:10px;} "
+        ".gap{height:6px;} code{background:rgba(255,255,255,0.1);"
         "border-radius:4px;padding:1px 4px;}</style>");
 
     if (m_current < 0 || m_conversations.isEmpty()) {
@@ -508,13 +572,16 @@ void ChatWindow::renderConversation()
             message.role == QStringLiteral("user") ? QStringLiteral("user")
                                                    : QStringLiteral("assistant");
         html += QStringLiteral("<div class='role'>%1</div>").arg(role);
-        html += QStringLiteral("<div class='%1'>%2</div>")
-                    .arg(cssClass, escapedHtml(message.content));
+        const QString body = message.role == QStringLiteral("assistant")
+                                 ? markdownToHtml(message.content)
+                                 : escapedHtml(message.content);
+        html += QStringLiteral("<div class='%1'>%2</div>").arg(cssClass, body);
 
         html += QStringLiteral("<div class='actions'>");
         if (message.role == QStringLiteral("user")) {
             html += QStringLiteral("<a href='gxde-ai-see:edit/%1'>编辑</a>").arg(i);
         } else if (message.role == QStringLiteral("assistant")) {
+            html += QStringLiteral("<a href='gxde-ai-see:copy/%1'>复制</a> · ").arg(i);
             html += QStringLiteral("<a href='gxde-ai-see:fork/%1'>分支</a>").arg(i);
             if (i == conversation.messages.size() - 1) {
                 html += QStringLiteral(" · <a href='gxde-ai-see:retry'>重试</a>");
@@ -757,6 +824,13 @@ void ChatWindow::handleAnchor(const QUrl &url)
         editMessage(target.section(QLatin1Char('/'), -1).toInt());
     } else if (target.startsWith(QStringLiteral("gxde-ai-see:fork/"))) {
         forkFrom(target.section(QLatin1Char('/'), -1).toInt());
+    } else if (target.startsWith(QStringLiteral("gxde-ai-see:copy/"))) {
+        const int index = target.section(QLatin1Char('/'), -1).toInt();
+        if (m_current >= 0 && index >= 0 &&
+            index < m_conversations.at(m_current).messages.size()) {
+            QApplication::clipboard()->setText(
+                m_conversations.at(m_current).messages.at(index).content);
+        }
     } else if (target == QStringLiteral("gxde-ai-see:retry")) {
         retryLast();
     }
