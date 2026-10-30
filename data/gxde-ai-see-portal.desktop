@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=GXDE Portal
+Name[zh_CN]=传送门
+Comment=Show or hide the GXDE AI See portal panel
+Comment[zh_CN]=显示或隐藏小埃同学的传送门面板
+Exec=gxde-ai-see --show
+Icon=gxde-ai-see
+Terminal=false
+Categories=Utility;
+StartupNotify=false

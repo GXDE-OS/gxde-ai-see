@@ -6,6 +6,7 @@
 #include "flowlayout.h"
 
 #include <QApplication>
+#include <QPalette>
 #include <QClipboard>
 #include <QEvent>
 #include <QLabel>
@@ -21,12 +22,17 @@ SegmentDialog::SegmentDialog(const QStringList &words, QWidget *parent)
     setAttribute(Qt::WA_DeleteOnClose);
     resize(560, 420);
 
+    const bool dark = palette().color(QPalette::Window).lightness() < 128;
+    const QColor capsuleBg = dark ? QColor(255, 255, 255, 20) : QColor(0, 0, 0, 18);
+    const QColor capsuleBorder = dark ? QColor(255, 255, 255, 30) : QColor(0, 0, 0, 28);
+    const QColor textColor = palette().color(QPalette::WindowText);
+
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(16, 14, 16, 14);
     layout->setSpacing(10);
 
     auto *hint = new QLabel(tr("按住并滑过词语可以连续选择，选中后复制。"), this);
-    hint->setStyleSheet(QStringLiteral("color: rgba(255,255,255,0.55); font-size: 12px;"));
+    hint->setStyleSheet(QStringLiteral("font-size: 12px;"));
     layout->addWidget(hint);
 
     auto *scroll = new QScrollArea(this);
@@ -44,12 +50,20 @@ SegmentDialog::SegmentDialog(const QStringList &words, QWidget *parent)
         capsule->setCursor(Qt::PointingHandCursor);
         capsule->setFocusPolicy(Qt::NoFocus);
         capsule->setStyleSheet(QStringLiteral(
-            "QPushButton { color: rgba(255,255,255,0.85); background: rgba(255,255,255,0.07);"
-            " border: 1px solid rgba(255,255,255,0.10); border-radius: 11px;"
-            " padding: 3px 10px; font-size: 13px; }"
-            "QPushButton:hover { background: rgba(255,255,255,0.14); }"
-            "QPushButton:checked { background: rgba(74,144,255,0.55);"
-            " border-color: rgba(160,205,255,0.9); color: white; }"));
+            "QPushButton { color: %1; background: %2; border: 1px solid %3;"
+            " border-radius: 11px; padding: 3px 10px; font-size: 13px; }"
+            "QPushButton:hover { background: %4; }"
+            "QPushButton:checked { background: rgba(74,144,255,0.85);"
+            " border-color: rgba(74,144,255,1.0); color: white; }")
+                                    .arg(textColor.name(),
+                                         QStringLiteral("rgba(%1,%2,%3,%4)")
+                                             .arg(capsuleBg.red())
+                                             .arg(capsuleBg.green())
+                                             .arg(capsuleBg.blue())
+                                             .arg(capsuleBg.alpha()),
+                                         capsuleBorder.name(),
+                                         dark ? QStringLiteral("rgba(255,255,255,30)")
+                                              : QStringLiteral("rgba(0,0,0,28)")));
         capsule->installEventFilter(this);
         connect(capsule, &QPushButton::released, this, [this]() { m_selecting = false; });
         flow->addWidget(capsule);
@@ -60,7 +74,7 @@ SegmentDialog::SegmentDialog(const QStringList &words, QWidget *parent)
     auto *all = new QPushButton(tr("全选"), this);
     auto *none = new QPushButton(tr("清空"), this);
     m_count = new QLabel(tr("已选 0 个"), this);
-    m_count->setStyleSheet(QStringLiteral("color: rgba(255,255,255,0.55); font-size: 12px;"));
+    m_count->setStyleSheet(QStringLiteral("font-size: 12px;"));
     auto *copy = new QPushButton(tr("复制选中"), this);
     copy->setStyleSheet(QStringLiteral(
         "QPushButton { color: white; background: rgba(74,144,255,0.85); border: none;"

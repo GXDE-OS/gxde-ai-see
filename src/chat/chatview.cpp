@@ -182,15 +182,16 @@ public:
             connect(fork, &QToolButton::clicked, this,
                     [this]() { Q_EMIT forkRequested(m_index); });
             actions->addWidget(fork);
-            if (m_isLast) {
-                auto *retry = actionButton(tr("重试"), m_actions);
-                connect(retry, &QToolButton::clicked, this,
-                        [this]() { Q_EMIT retryRequested(); });
-                actions->addWidget(retry);
-            }
+            auto *edit = actionButton(tr("编辑"), m_actions);
+            connect(edit, &QToolButton::clicked, this,
+                    [this]() { Q_EMIT editRequested(m_index); });
+            actions->addWidget(edit);
+            auto *retry = actionButton(tr("重试"), m_actions);
+            connect(retry, &QToolButton::clicked, this,
+                    [this]() { Q_EMIT retryRequested(m_index); });
+            actions->addWidget(retry);
         }
         actions->addStretch();
-        m_actions->hide();
         column->addWidget(m_actions);
 
         if (m_isUser) {
@@ -220,21 +221,10 @@ signals:
     void copyRequested(int index);
     void editRequested(int index);
     void forkRequested(int index);
-    void retryRequested();
+    void retryRequested(int index);
     void linkActivated(const QUrl &url);
 
 protected:
-    void enterEvent(QEnterEvent *event) override
-    {
-        m_actions->show();
-        QWidget::enterEvent(event);
-    }
-
-    void leaveEvent(QEvent *event) override
-    {
-        m_actions->hide();
-        QWidget::leaveEvent(event);
-    }
 
 private:
     ChatMessage m_message;

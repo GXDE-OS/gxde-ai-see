@@ -36,7 +36,7 @@ signals:
     void copyRequested(int index);
     void editRequested(int index);
     void forkRequested(int index);
-    void retryRequested();
+    void retryRequested(int index);
     void linkActivated(const QUrl &url);
 
 protected:

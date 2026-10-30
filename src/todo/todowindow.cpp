@@ -12,6 +12,7 @@
 #include <QDialogButtonBox>
 #include <QGuiApplication>
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListView>
@@ -145,6 +146,9 @@ TodoWindow::TodoWindow(TodoModel *model, QWidget *parent)
     , m_model(model)
 {
     setWindowTitle(tr("待办"));
+    setWindowIcon(QIcon::fromTheme(
+        QStringLiteral("gxde-ai-see-todo"),
+        QIcon(QStringLiteral("/usr/share/icons/hicolor/256x256/apps/gxde-ai-see-todo.png"))));
     setWindowFlags(Qt::FramelessWindowHint | Qt::Tool);
     setAttribute(Qt::WA_TranslucentBackground);
     setAttribute(Qt::WA_ShowWithoutActivating);

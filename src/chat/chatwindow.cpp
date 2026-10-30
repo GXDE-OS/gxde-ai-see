@@ -5,6 +5,8 @@
 
 #include "config.h"
 #include "chatview.h"
+
+#include "../ui/aboutdialog.h"
 #include "markdown.h"
 #include "mcpclient.h"
 
@@ -555,7 +557,9 @@ void ChatWindow::setupUi()
     });
     connect(m_messages, &ChatMessageList::editRequested, this, &ChatWindow::editMessage);
     connect(m_messages, &ChatMessageList::forkRequested, this, &ChatWindow::forkFrom);
-    connect(m_messages, &ChatMessageList::retryRequested, this, &ChatWindow::retryLast);
+    connect(m_messages, &ChatMessageList::retryRequested, this, [this](int index) {
+        retryFrom(index);
+    });
 
     auto *menu = new QMenu(menuButton);
     menu->addAction(tr("压缩上下文"), this, [this]() { beginCompression(false); });
@@ -925,9 +929,6 @@ void ChatWindow::editMessage(int index)
     if (index < 0 || index >= conversation.messages.size()) {
         return;
     }
-    if (conversation.messages.at(index).role != QStringLiteral("user")) {
-        return;
-    }
 
     QDialog dialog(this);
     dialog.setWindowTitle(tr("编辑消息"));
@@ -956,6 +957,27 @@ void ChatWindow::editMessage(int index)
     conversation.updatedAt = QDateTime::currentMSecsSinceEpoch();
     save();
     updateSidebar();
+    requestCompletion();
+}
+
+void ChatWindow::retryFrom(int index)
+{
+    if (m_client->busy() || m_compressing || m_current < 0) {
+        return;
+    }
+    ChatConversation &conversation = m_conversations[m_current];
+    if (index < 0 || index >= conversation.messages.size()) {
+        return;
+    }
+    if (conversation.messages.at(index).role != QStringLiteral("assistant")) {
+        return;
+    }
+
+    /* drop everything from the assistant answer on, then regenerate it */
+    conversation.messages.resize(index);
+    conversation.updatedAt = QDateTime::currentMSecsSinceEpoch();
+    save();
+    renderConversation();
     requestCompletion();
 }
 
@@ -1028,15 +1050,7 @@ void ChatWindow::handleAnchor(const QUrl &url)
 
 void ChatWindow::showAbout()
 {
-    QMessageBox::about(
-        this, tr("关于小埃同学"),
-        tr("<h3>GXDE 小埃同学</h3>"
-           "<p>版本 %1</p>"
-           "<p>GXDE 桌面的 AI 助手：传送门、内容工厂、待办与对话。</p>"
-           "<p>许可证：GPL-3.0-or-later<br/>"
-           "仓库：<a href='https://gitee.com/GXDE-OS/gxde-ai-see'>"
-           "gitee.com/GXDE-OS/gxde-ai-see</a></p>")
-            .arg(QCoreApplication::applicationVersion()));
+    showAboutDialog(this, tr("GXDE 桌面的 AI 助手：传送门、内容工厂、待办与对话。"));
 }
 
 void ChatWindow::appendError(const QString &message)

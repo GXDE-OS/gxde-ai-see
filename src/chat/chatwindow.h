@@ -68,6 +68,7 @@ private:
     void sendPayload();
     void editMessage(int index);
     void retryLast();
+    void retryFrom(int index);
     void forkFrom(int index);
     void beginCompression(bool thenSend);
     void handleAnchor(const QUrl &url);

@@ -52,7 +52,7 @@ bool App::init(bool daemon, bool forceShow, bool showTodo, bool showChat)
                 } else if (data.contains("todo")) {
                     showTodoWindow();
                 } else if (data.contains("show")) {
-                    showPanel();
+                    togglePanel();
                 }
             });
             connect(socket, &QLocalSocket::disconnected, socket,
@@ -97,7 +97,7 @@ bool App::init(bool daemon, bool forceShow, bool showTodo, bool showChat)
             }
             return;
         }
-        QTimer::singleShot(120, this, [this]() {
+        QTimer::singleShot(80, this, [this]() {
             if (m_dragging && m_model->isEmpty()) {
                 showPanel();
                 if (m_panel) {
@@ -112,14 +112,19 @@ bool App::init(bool daemon, bool forceShow, bool showTodo, bool showChat)
             m_panel->stopPortalSuppression();
             m_panel->setDragging(false);
         }
-        if (m_model->isEmpty() && m_panel && m_panel->isVisible()) {
+        if (m_model->isEmpty() && !m_panelPinned && m_panel && m_panel->isVisible()) {
             m_panel->dismiss();
         }
     });
 
     connect(m_model, &StagingModel::countChanged, this, [this]() {
-        if (!m_daemon && !m_model->isEmpty() && m_panel) {
+        if (!m_model->isEmpty() && m_panel) {
             m_panel->popup();
+            return;
+        }
+        /* cleared: the panel exists for the staging list, hide it again */
+        if (!m_dragging && !m_panelPinned && m_panel && m_panel->isVisible()) {
+            m_panel->dismiss();
         }
     });
 
@@ -131,6 +136,7 @@ bool App::init(bool daemon, bool forceShow, bool showTodo, bool showChat)
     }
     if (!daemon || forceShow || !m_model->isEmpty()) {
         showPanel();
+        m_panelPinned = forceShow;
     }
 
     return true;
@@ -144,6 +150,11 @@ void App::ensurePanel()
 
     m_panel = new PortalPanel(m_model);
     connect(m_panel, &PortalPanel::openChatRequested, this, &App::showChatWindow);
+    connect(m_panel, &PortalPanel::hideRequested, this, [this]() {
+        m_panelPinned = false;
+        m_panel->dismiss();
+    });
+    connect(m_panel, &PortalPanel::todoAdded, this, &App::showTodoWindow);
     connect(m_panel, &PortalPanel::askWithContent, this,
             [this](const QString &text, const QStringList &files) {
                 showChatWindow();
@@ -156,6 +167,18 @@ void App::ensurePanel()
 void App::showPanel()
 {
     ensurePanel();
+    m_panel->popup();
+}
+
+void App::togglePanel()
+{
+    ensurePanel();
+    if (m_panel->isVisible() && m_panelPinned) {
+        m_panel->dismiss();
+        m_panelPinned = false;
+        return;
+    }
+    m_panelPinned = true;
     m_panel->popup();
 }
 

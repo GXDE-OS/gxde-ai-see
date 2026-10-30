@@ -41,6 +41,7 @@ set(GXDE_AI_SEE_SOURCES
     src/chat/markdown.cpp
     src/chat/chatview.cpp
     src/ui/portalpanel.cpp
+    src/ui/aboutdialog.cpp
 )
 
 add_executable(gxde-ai-see ${GXDE_AI_SEE_SOURCES})
@@ -119,7 +120,8 @@ if (LRELEASE_EXECUTABLE AND TS_FILES)
 endif()
 
 install(TARGETS gxde-ai-see RUNTIME DESTINATION bin)
-install(FILES data/gxde-ai-see.desktop data/gxde-ai-see-todo.desktop DESTINATION share/applications)
+install(FILES data/gxde-ai-see.desktop data/gxde-ai-see-todo.desktop
+        data/gxde-ai-see-portal.desktop DESTINATION share/applications)
 install(DIRECTORY data/icons/hicolor/ DESTINATION share/icons/hicolor)
 
 include(GNUInstallDirs)

@@ -41,6 +41,8 @@ public:
 signals:
     void openChatRequested();
     void askWithContent(const QString &text, const QStringList &files);
+    void hideRequested();
+    void todoAdded();
 
 protected:
     void showEvent(QShowEvent *event) override;

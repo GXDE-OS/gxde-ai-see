@@ -11,6 +11,7 @@
 #include "factory/contentclassifier.h"
 #include "factory/contentfactory.h"
 
+#include "aboutdialog.h"
 #include "dialogs/segmentdialog.h"
 #include "dialogs/speechdialog.h"
 #include "todo/todomodel.h"
@@ -580,7 +581,7 @@ public:
         setMinimumHeight(190);
 
         m_portalTimer.setSingleShot(true);
-        m_portalTimer.setInterval(150);
+        m_portalTimer.setInterval(80);
         connect(&m_portalTimer, &QTimer::timeout, this, [this]() {
             if (m_active && !m_suppressed) {
                 Q_EMIT portalRequested();
@@ -1203,6 +1204,7 @@ void PortalPanel::runFactoryAction(const QString &id, const DropContent &content
                                                                : content.summary();
         TodoModel::instance()->add(text);
         toast(tr("已添加到待办"));
+        Q_EMIT todoAdded();
         return;
     }
     if (id == QLatin1String("save_image")) {
@@ -1401,6 +1403,7 @@ void PortalPanel::showContextMenu(const QPoint &globalPos)
 
     menu.addSeparator();
     QAction *clear = menu.addAction(tr("清空暂存区"));
+    QAction *hide = menu.addAction(tr("隐藏"));
     QAction *about = menu.addAction(tr("关于"));
     QAction *quit = menu.addAction(tr("退出"));
 
@@ -1420,11 +1423,22 @@ void PortalPanel::showContextMenu(const QPoint &globalPos)
             menuPos.setX(available.right() - menuSize.width());
         }
     }
+    menuPos.setX(globalPos.x() - menuSize.width() - 10);
+    if (scr) {
+        const QRect available = scr->availableGeometry();
+        if (menuPos.x() < available.left()) {
+            menuPos.setX(available.left());
+        }
+    }
     QAction *chosen = menu.exec(menuPos);
     if (!chosen) {
         return;
     }
 
+    if (chosen == hide) {
+        Q_EMIT hideRequested();
+        return;
+    }
     if (chosen == fixedPosition) {
         m_fixedPosition = fixedPosition->isChecked();
         saveWindowState();
@@ -1469,13 +1483,7 @@ void PortalPanel::showContextMenu(const QPoint &globalPos)
     } else if (chosen == clear) {
         m_model->clearAll();
     } else if (chosen == about) {
-        QMessageBox::about(
-            this, tr("关于小埃同学"),
-            tr("<h3>GXDE 小埃同学</h3><p>版本 %1</p>"
-               "<p>传送门、内容工厂、待办与小埃同学对话。</p>"
-               "<p>GPL-3.0-or-later · "
-               "<a href='https://gitee.com/GXDE-OS/gxde-ai-see'>gxde-ai-see</a></p>")
-                .arg(QCoreApplication::applicationVersion()));
+        showAboutDialog(nullptr, tr("传送门、内容工厂、待办与小埃同学对话。"));
     } else if (chosen == quit) {
         QCoreApplication::quit();
     }

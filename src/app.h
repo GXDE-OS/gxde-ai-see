@@ -32,6 +32,7 @@ public:
 private:
     void ensurePanel();
     void showPanel();
+    void togglePanel();
     void showTodoWindow();
     void showChatWindow();
 
@@ -42,4 +43,5 @@ private:
     QLocalServer *m_server = nullptr;
     bool m_daemon = false;
     bool m_dragging = false;
+    bool m_panelPinned = false;
 };
