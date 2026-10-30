@@ -22,6 +22,7 @@
 #include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QImage>
+#include <QInputDialog>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -444,6 +445,43 @@ void ChatWindow::setupUi()
     m_sendButton->setEnabled(false);
 
     connect(m_sidebar, &QListWidget::currentRowChanged, this, &ChatWindow::selectConversation);
+
+    m_sidebar->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_sidebar, &QListWidget::customContextMenuRequested, this,
+            [this](const QPoint &pos) {
+                const QModelIndex index = m_sidebar->indexAt(pos);
+                if (!index.isValid() || index.row() >= m_conversations.size()) {
+                    return;
+                }
+                const int row = index.row();
+                QMenu menu(this);
+                QAction *rename = menu.addAction(tr("重命名对话"));
+                QAction *remove = menu.addAction(tr("删除对话"));
+                QAction *chosen = menu.exec(m_sidebar->viewport()->mapToGlobal(pos));
+                if (chosen == rename) {
+                    bool ok = false;
+                    const QString title = QInputDialog::getText(
+                        nullptr, tr("重命名对话"), tr("名称"), QLineEdit::Normal,
+                        m_conversations.at(row).title, &ok);
+                    if (ok && !title.trimmed().isEmpty()) {
+                        m_conversations[row].title = title.trimmed();
+                        save();
+                        updateSidebar();
+                        renderConversation();
+                    }
+                } else if (chosen == remove) {
+                    if (m_client->busy()) {
+                        m_client->cancel();
+                        m_streamingIndex = -1;
+                    }
+                    m_conversations.removeAt(row);
+                    m_current = m_conversations.isEmpty() ? -1
+                                                          : qBound(0, row, m_conversations.size() - 1);
+                    save();
+                    updateSidebar();
+                    renderConversation();
+                }
+            });
     connect(static_cast<ChatSidebar *>(m_sidebar), &ChatSidebar::droppedAt, this,
             &ChatWindow::handleDropOnConversation);
     connect(static_cast<ChatView *>(m_view), &ChatView::dropped, this,
