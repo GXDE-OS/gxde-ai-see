@@ -3,9 +3,12 @@
 
 #include "app.h"
 
+#include "chat/chatwindow.h"
 #include "config.h"
 #include "portal/portalclient.h"
 #include "staging/stagingmodel.h"
+#include "todo/todomodel.h"
+#include "todo/todowindow.h"
 #include "ui/portalpanel.h"
 
 #include <QLocalServer>
@@ -19,7 +22,7 @@ App::App(QObject *parent)
 {
 }
 
-bool App::init(bool daemon, bool forceShow)
+bool App::init(bool daemon, bool forceShow, bool showTodo, bool showChat)
 {
     Config::instance()->init();
     m_daemon = daemon;
@@ -29,7 +32,7 @@ bool App::init(bool daemon, bool forceShow)
     QLocalSocket probe;
     probe.connectToServer(serverName);
     if (probe.waitForConnected(200)) {
-        probe.write("show");
+        probe.write(showChat ? "chat" : (showTodo ? "todo" : "show"));
         probe.waitForBytesWritten(200);
         probe.disconnectFromServer();
         return false;
@@ -41,7 +44,12 @@ bool App::init(bool daemon, bool forceShow)
     connect(m_server, &QLocalServer::newConnection, this, [this]() {
         while (QLocalSocket *socket = m_server->nextPendingConnection()) {
             connect(socket, &QLocalSocket::readyRead, this, [this, socket]() {
-                if (socket->readAll().contains("show")) {
+                const QByteArray data = socket->readAll();
+                if (data.contains("chat")) {
+                    showChatWindow();
+                } else if (data.contains("todo")) {
+                    showTodoWindow();
+                } else if (data.contains("show")) {
                     showPanel();
                 }
             });
@@ -80,6 +88,12 @@ bool App::init(bool daemon, bool forceShow)
         }
     });
 
+    if (showChat) {
+        showChatWindow();
+    }
+    if (showTodo) {
+        showTodoWindow();
+    }
     if (!daemon || forceShow || !m_model->isEmpty()) {
         showPanel();
     }
@@ -94,13 +108,27 @@ void App::ensurePanel()
     }
 
     m_panel = new PortalPanel(m_model);
-    connect(m_panel, &PortalPanel::openChatRequested, this, []() {
-        // TODO(M4): open the AI See chat window.
-    });
+    connect(m_panel, &PortalPanel::openChatRequested, this, &App::showChatWindow);
 }
 
 void App::showPanel()
 {
     ensurePanel();
     m_panel->popup();
+}
+
+void App::showChatWindow()
+{
+    if (!m_chatWindow) {
+        m_chatWindow = new ChatWindow;
+    }
+    m_chatWindow->activateForAsk();
+}
+
+void App::showTodoWindow()
+{
+    if (!m_todoWindow) {
+        m_todoWindow = new TodoWindow(TodoModel::instance());
+    }
+    m_todoWindow->popup();
 }

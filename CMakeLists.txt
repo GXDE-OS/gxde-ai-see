@@ -31,6 +31,9 @@ set(GXDE_AI_SEE_SOURCES
     src/actions/downloader.cpp
     src/actions/texttools.cpp
     src/todo/todomodel.cpp
+    src/todo/todowindow.cpp
+    src/chat/chatclient.cpp
+    src/chat/chatwindow.cpp
     src/ui/portalpanel.cpp
 )
 
@@ -71,7 +74,7 @@ target_include_directories(gxde-ai-see-selftest PRIVATE src ${ICU_INCLUDE_DIRS})
 target_link_libraries(gxde-ai-see-selftest PRIVATE Qt6::Core Qt6::Gui ${ICU_LIBRARIES})
 
 install(TARGETS gxde-ai-see RUNTIME DESTINATION bin)
-install(FILES data/gxde-ai-see.desktop DESTINATION share/applications)
+install(FILES data/gxde-ai-see.desktop data/gxde-ai-see-todo.desktop DESTINATION share/applications)
 install(DIRECTORY data/icons/ DESTINATION share/icons/hicolor)
 
 include(GNUInstallDirs)

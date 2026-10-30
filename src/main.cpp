@@ -27,12 +27,19 @@ int main(int argc, char *argv[])
                                     QStringLiteral("后台常驻，需要时再显示面板"));
     QCommandLineOption showOption(QStringLiteral("show"),
                                   QStringLiteral("启动后立即显示传送门面板"));
+    QCommandLineOption todoOption(QStringLiteral("todo"),
+                                  QStringLiteral("打开待办窗口"));
+    QCommandLineOption chatOption(QStringLiteral("chat"),
+                                  QStringLiteral("打开小埃同学对话窗口"));
     parser.addOption(daemonOption);
     parser.addOption(showOption);
+    parser.addOption(todoOption);
+    parser.addOption(chatOption);
     parser.process(app);
 
     App gxde;
-    if (!gxde.init(parser.isSet(daemonOption), parser.isSet(showOption))) {
+    if (!gxde.init(parser.isSet(daemonOption), parser.isSet(showOption),
+                          parser.isSet(todoOption), parser.isSet(chatOption))) {
         return 0;
     }
 

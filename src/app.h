@@ -5,9 +5,11 @@
 
 #include <QObject>
 
+class ChatWindow;
 class PortalPanel;
 class QLocalServer;
 class StagingModel;
+class TodoWindow;
 
 /**
  * Application controller: owns the staging model, the panel and the single
@@ -25,14 +27,18 @@ public:
      * @param forceShow always show the panel on startup
      * @return false when another instance is already running
      */
-    bool init(bool daemon, bool forceShow);
+    bool init(bool daemon, bool forceShow, bool showTodo = false, bool showChat = false);
 
 private:
     void ensurePanel();
     void showPanel();
+    void showTodoWindow();
+    void showChatWindow();
 
     StagingModel *m_model = nullptr;
     PortalPanel *m_panel = nullptr;
+    TodoWindow *m_todoWindow = nullptr;
+    ChatWindow *m_chatWindow = nullptr;
     QLocalServer *m_server = nullptr;
     bool m_daemon = false;
     bool m_dragging = false;

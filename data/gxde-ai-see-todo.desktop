@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=GXDE Todo
+Name[zh_CN]=GXDE 待办
+Comment=Floating todo list of GXDE AI See
+Comment[zh_CN]=小埃同学的待办
+Exec=gxde-ai-see --todo
+Icon=gxde-ai-see
+Terminal=false
+Categories=Utility;
+StartupNotify=false
