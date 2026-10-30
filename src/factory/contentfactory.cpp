@@ -317,6 +317,45 @@ void ContentFactory::paintEvent(QPaintEvent *event)
     painter.drawPath(path);
 }
 
+void ContentFactory::dragEnterEvent(QDragEnterEvent *event)
+{
+    if (!event->mimeData() ||
+        !(event->mimeData()->hasUrls() || event->mimeData()->hasText() ||
+          event->mimeData()->hasImage())) {
+        event->ignore();
+        return;
+    }
+    Q_EMIT dragContent(event->mimeData());
+    Q_EMIT dragActivity();
+    event->acceptProposedAction();
+}
+
+void ContentFactory::dragMoveEvent(QDragMoveEvent *event)
+{
+    if (event->mimeData() &&
+        (event->mimeData()->hasUrls() || event->mimeData()->hasText() ||
+         event->mimeData()->hasImage())) {
+        Q_EMIT dragContent(event->mimeData());
+        Q_EMIT dragActivity();
+        event->acceptProposedAction();
+        return;
+    }
+    event->ignore();
+}
+
+void ContentFactory::dragLeaveEvent(QDragLeaveEvent *event)
+{
+    Q_UNUSED(event)
+    Q_EMIT dragActivity();
+}
+
+void ContentFactory::dropEvent(QDropEvent *event)
+{
+    if (event->mimeData()) {
+        event->acceptProposedAction();
+    }
+}
+
 bool ContentFactory::eventFilter(QObject *watched, QEvent *event)
 {
     if (event->type() == QEvent::DragEnter || event->type() == QEvent::DragMove) {

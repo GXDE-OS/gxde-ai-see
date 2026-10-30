@@ -784,6 +784,7 @@ PortalPanel::PortalPanel(StagingModel *model, QWidget *parent)
         if (m_countLabel) {
             m_countLabel->setText(tr("%1 项").arg(m_model->count()));
         }
+        updateMode();
         refreshLayout();
     });
     connect(m_model, &StagingModel::countChanged, m_view->viewport(),
@@ -873,7 +874,15 @@ void PortalPanel::setupUi()
 
     connect(m_zone, &PortalZone::portalRequested, this, [this]() {
         PortalClient *portal = PortalClient::instance();
-        if (portal->beginPortal(QRect(mapToGlobal(QPoint(0, 0)), size()))) {
+        QScreen *scr = screen() ? screen() : QGuiApplication::primaryScreen();
+        QRect panelRect = geometry();
+        if (scr) {
+            const QRect avail = scr->availableGeometry();
+            panelRect = QRect(avail.x() + avail.width() - width() - m_rightMargin,
+                              avail.y() + avail.height() - height() - m_bottomMargin,
+                              width(), height());
+        }
+        if (portal->beginPortal(panelRect)) {
             m_zone->setPortalActive(true);
             m_zone->showMessage(tr("移动到目标窗口上松手"));
         } else {
@@ -885,6 +894,8 @@ void PortalPanel::setupUi()
         PortalClient::instance()->cancelPortal();
     });
     connect(PortalClient::instance(), &PortalClient::dragEnded, this,
+            [this]() { m_zone->setPortalActive(false); });
+    connect(PortalClient::instance(), &PortalClient::portalClosed, this,
             [this]() { m_zone->setPortalActive(false); });
 
     auto *right = new QVBoxLayout;
@@ -990,6 +1001,7 @@ void PortalPanel::setupUi()
         Q_EMIT askWithContent(text, files);
     });
     connect(m_factory, &ContentFactory::heightChanged, this, [this]() { refreshLayout(); });
+    connect(m_factory, &ContentFactory::dragContent, this, &PortalPanel::noteDragContent);
     connect(m_factory, &ContentFactory::dragActivity, this, [this]() {
         if (m_factoryTimer) {
             m_factoryTimer->start();
@@ -1000,6 +1012,32 @@ void PortalPanel::setupUi()
 void PortalPanel::refreshLayout()
 {
     updateGeometryForContent();
+}
+
+void PortalPanel::setDragging(bool dragging)
+{
+    if (m_dragging == dragging) {
+        return;
+    }
+    m_dragging = dragging;
+    updateMode();
+}
+
+void PortalPanel::updateMode()
+{
+    const bool stagingOnly = !m_dragging && m_model && m_model->count() > 0;
+    if (stagingOnly == m_stagingOnly) {
+        return;
+    }
+    m_stagingOnly = stagingOnly;
+    if (m_zone) {
+        m_zone->setVisible(!stagingOnly);
+    }
+    if (m_factory) {
+        m_factory->setVisible(!stagingOnly);
+    }
+    setFixedWidth(stagingOnly ? 360 : kPanelWidth);
+    refreshLayout();
 }
 
 void PortalPanel::updateGeometryForContent()
@@ -1020,10 +1058,11 @@ void PortalPanel::updateGeometryForContent()
     const int selectionHeight = (m_selectionBar && m_selectionBar->isVisible()) ? 32 : 0;
     /* The factory always occupies the same strip, so neither the panel size nor
      * its position changes when a drag starts or ends. */
-    const int factoryHeight = m_factory ? m_factory->sizeHint().height() + 6 : 0;
+    const int factoryHeight =
+        (!m_stagingOnly && m_factory) ? m_factory->sizeHint().height() + 6 : 0;
     const int totalHeight =
         kMargin * 2 + headerHeight + 6 + selectionHeight + listHeight + factoryHeight;
-    resize(kPanelWidth, totalHeight);
+    resize(m_stagingOnly ? 360 : kPanelWidth, totalHeight);
 }
 
 void PortalPanel::noteDragContent(const QMimeData *mime)

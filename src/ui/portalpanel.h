@@ -34,6 +34,7 @@ public:
     void refreshLayout();
     void popup();
     void suppressPortalIfUnderCursor();
+    void setDragging(bool dragging);
     void stopPortalSuppression();
     void dismiss();
 
@@ -52,6 +53,7 @@ private:
     void setupUi();
     void setupWindow();
     void updateGeometryForContent();
+    void updateMode();
     void updateSelectionBar();
     void noteDragContent(const QMimeData *mime);
     void noteDragFinished();
@@ -79,6 +81,8 @@ private:
     int m_bottomMargin = 16;
     int m_manualListHeight = 0;
     QTimer *m_suppressWatch = nullptr;
+    bool m_stagingOnly = false;
+    bool m_dragging = false;
     bool m_fixedPosition = true;
     bool m_fixedSize = false;
     int m_dragMode = 0; // 0 none, 1 move, 2 resize

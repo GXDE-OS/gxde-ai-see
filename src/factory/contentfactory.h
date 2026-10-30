@@ -33,6 +33,7 @@ signals:
     void actionRequested(const QString &id, const DropContent &content);
     void heightChanged();
     void dragActivity();
+    void dragContent(const QMimeData *mime);
     void askRequested();
     void askDropped(const QMimeData *mime);
 
@@ -42,6 +43,10 @@ public:
 protected:
     void paintEvent(QPaintEvent *event) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dragMoveEvent(QDragMoveEvent *event) override;
+    void dragLeaveEvent(QDragLeaveEvent *event) override;
+    void dropEvent(QDropEvent *event) override;
 
 private:
     void rebuild();

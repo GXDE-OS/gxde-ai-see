@@ -88,6 +88,9 @@ bool App::init(bool daemon, bool forceShow, bool showTodo, bool showChat)
             return;
         }
         m_dragging = true;
+        if (m_panel) {
+            m_panel->setDragging(true);
+        }
         if (!m_model->isEmpty()) {
             if (m_panel && m_panel->isVisible()) {
                 m_panel->suppressPortalIfUnderCursor();
@@ -107,6 +110,7 @@ bool App::init(bool daemon, bool forceShow, bool showTodo, bool showChat)
         m_dragging = false;
         if (m_panel) {
             m_panel->stopPortalSuppression();
+            m_panel->setDragging(false);
         }
         if (m_model->isEmpty() && m_panel && m_panel->isVisible()) {
             m_panel->dismiss();

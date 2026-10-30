@@ -1281,9 +1281,6 @@ void ChatWindow::startConversationWith(const QString &text, const QStringList &f
         }
     }
     m_input->setFocus();
-
-    m_status->setText(tr("拖到左侧空白处＝新对话，拖到左侧会话＝追加到该会话，拖到右侧对话区＝发给当前会话"));
-    m_status->show();
 }
 
 void ChatWindow::activateForAsk()

@@ -33,11 +33,13 @@ public:
 signals:
     void dragStarted(const QString &mimeTypes);
     void dragEnded();
+    void portalClosed();
     void dropped(const QString &uuid, bool accepted);
 
 private slots:
     void onDragStarted(const QString &mimeTypes);
     void onDragEnded();
+    void onPortalClosed();
     void onDropped(const QString &uuid, bool accepted);
 
 private:

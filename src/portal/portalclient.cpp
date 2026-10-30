@@ -50,6 +50,9 @@ PortalClient::PortalClient(QObject *parent)
     bus.connect(QString::fromLatin1(kService), QString::fromLatin1(kPath),
                 QString::fromLatin1(kInterface), QStringLiteral("PortalDropped"), this,
                 SLOT(onDropped(QString, bool)));
+    bus.connect(QString::fromLatin1(kService), QString::fromLatin1(kPath),
+                QString::fromLatin1(kInterface), QStringLiteral("PortalClosed"), this,
+                SLOT(onPortalClosed()));
 }
 
 bool PortalClient::beginPortal(const QRect &panelRect)
@@ -91,6 +94,11 @@ bool PortalClient::mimeInteresting(const QString &mimeTypes)
 void PortalClient::onDragStarted(const QString &mimeTypes)
 {
     Q_EMIT dragStarted(mimeTypes);
+}
+
+void PortalClient::onPortalClosed()
+{
+    Q_EMIT portalClosed();
 }
 
 void PortalClient::onDragEnded()
