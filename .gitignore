@@ -1,0 +1,25 @@
+# build
+build/
+build-*/
+cmake-build-*/
+compile_commands.json
+CMakeUserPresets.json
+
+# editor
+.idea/
+.vscode/
+*.swp
+*~
+
+# qt
+*.moc
+moc_*.cpp
+qrc_*.cpp
+ui_*.h
+*.qm
+
+# misc
+*.o
+*.so
+*.a
+.DS_Store
