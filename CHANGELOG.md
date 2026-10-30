@@ -1,10 +1,13 @@
 # 更新日志
 
-## 未发布
+## 1.0.0~beta3 — 2026-10-31
 
 - 对话窗口支持浅色 / 深色主题跟随 DTK：新增 `ChatTheme` 双套调色板，
   侧栏、气泡、输入区、会话列表、系统提示随 `DGuiApplicationHelper::themeTypeChanged`
   实时切换；补齐全浅色对比度自检 · shenmo <shenmo@spark-app.store>
+- 修复 Markdown 正文不随主题换色（暗色下暗字暗底）：块级选择器着色，
+  浅色对比度调优、暗色观感对齐旧版；主题切换保留滚动位置
+  · shenmo <shenmo@spark-app.store>
 
 ## 1.0.0~beta2 — 2026-10-30
 
