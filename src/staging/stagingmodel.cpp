@@ -306,6 +306,23 @@ void StagingModel::setChecked(int row, bool checked)
     save();
 }
 
+void StagingModel::moveItem(int from, int to)
+{
+    if (from < 0 || from >= m_items.size() || to < 0 || to >= m_items.size() || from == to) {
+        return;
+    }
+    if (to > from) {
+        beginMoveRows(QModelIndex(), from, from, QModelIndex(), to + 1);
+        m_items.move(from, to);
+        endMoveRows();
+    } else {
+        beginMoveRows(QModelIndex(), from, from, QModelIndex(), to);
+        m_items.move(from, to);
+        endMoveRows();
+    }
+    save();
+}
+
 void StagingModel::setPinned(int row, bool pinned)
 {
     if (row < 0 || row >= m_items.size()) {

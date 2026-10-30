@@ -51,6 +51,7 @@ public:
 
     void setChecked(int row, bool checked);
     void setPinned(int row, bool pinned);
+    void moveItem(int from, int to);
     void clearAll();
 
     const StagingItem *itemAt(int row) const;

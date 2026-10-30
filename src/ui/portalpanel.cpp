@@ -48,6 +48,8 @@
 #include <QScreen>
 #include <QStyledItemDelegate>
 #include <QTimer>
+#include <QVariantAnimation>
+#include <QEasingCurve>
 #include <QUrl>
 #include <QVBoxLayout>
 
@@ -132,16 +134,27 @@ QString typeLabel(const QModelIndex &index)
 
 class StagingDelegate : public QStyledItemDelegate
 {
+    Q_OBJECT
+
 public:
     explicit StagingDelegate(QObject *parent = nullptr)
         : QStyledItemDelegate(parent)
     {
     }
 
-    void setHoverRow(int row)
+    void setHoverRow(int row) { m_hoverRow = row; }
+
+    void setRemoveState(int row, qreal progress)
     {
-        m_hoverRow = row;
+        m_removingRow = row;
+        m_removeProgress = progress;
     }
+
+signals:
+    void removeRequested(int row);
+
+public:
+
 
     QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override
     {
@@ -155,6 +168,11 @@ public:
     {
         painter->save();
         painter->setRenderHint(QPainter::Antialiasing, true);
+
+        if (index.row() == m_removingRow && m_removeProgress > 0.0) {
+            painter->setOpacity(1.0 - m_removeProgress);
+            painter->translate(m_removeProgress * 48.0, 0.0);
+        }
 
         const QRect row = option.rect.adjusted(4, 2, -4, -2);
         const bool hovered = index.row() == m_hoverRow;
@@ -247,7 +265,7 @@ public:
         }
 
         if (closeRect(option.rect).contains(pos)) {
-            model->removeRow(index.row());
+            Q_EMIT removeRequested(index.row());
             return true;
         }
 
@@ -256,6 +274,8 @@ public:
 
 private:
     int m_hoverRow = -1;
+    int m_removingRow = -1;
+    qreal m_removeProgress = 0.0;
 };
 
 /* ------------------------------------------------------------------------- */
@@ -285,6 +305,30 @@ public:
         viewport()->setAutoFillBackground(false);
         setStyleSheet(QStringLiteral("QListView { background: transparent; }"));
         setAcceptDrops(true);
+
+        m_removeAnim = new QVariantAnimation(this);
+        m_removeAnim->setDuration(200);
+        m_removeAnim->setEasingCurve(QEasingCurve::OutCubic);
+        connect(m_removeAnim, &QVariantAnimation::valueChanged, this, [this](const QVariant &value) {
+            if (m_removingRow >= 0) {
+                m_delegate->setRemoveState(m_removingRow, value.toReal());
+                viewport()->update();
+            }
+        });
+        connect(m_removeAnim, &QVariantAnimation::finished, this, [this]() {
+            if (m_removingRow < 0) {
+                return;
+            }
+            auto *staging = qobject_cast<StagingModel *>(this->model());
+            const int row = m_removingRow;
+            m_delegate->setRemoveState(-1, 0.0);
+            m_removingRow = -1;
+            if (staging) {
+                staging->removeRow(row);
+            }
+            viewport()->update();
+        });
+        connect(m_delegate, &StagingDelegate::removeRequested, this, &StagingView::startRemove);
     }
 
 signals:
@@ -346,7 +390,7 @@ protected:
     void dragEnterEvent(QDragEnterEvent *event) override
     {
         if (isOwnDrag(event->mimeData())) {
-            event->ignore();
+            event->acceptProposedAction();
             return;
         }
         if (mimeSupported(event->mimeData())) {
@@ -360,7 +404,7 @@ protected:
     void dragMoveEvent(QDragMoveEvent *event) override
     {
         if (isOwnDrag(event->mimeData())) {
-            event->ignore();
+            event->acceptProposedAction();
             return;
         }
         if (mimeSupported(event->mimeData())) {
@@ -374,12 +418,35 @@ protected:
 
     void dropEvent(QDropEvent *event) override
     {
-        if (isOwnDrag(event->mimeData()) || !mimeSupported(event->mimeData())) {
+        if (isOwnDrag(event->mimeData())) {
+            auto *staging = qobject_cast<StagingModel *>(this->model());
+            const QString id = QString::fromUtf8(
+                event->mimeData()->data(QStringLiteral("application/x-gxde-ai-see-staging")));
+            int from = -1;
+            if (staging) {
+                for (int row = 0; row < staging->count(); ++row) {
+                    const StagingItem *item = staging->itemAt(row);
+                    if (item && item->id == id) {
+                        from = row;
+                        break;
+                    }
+                }
+            }
+            const QModelIndex index = indexAt(event->position().toPoint());
+            int to = index.isValid() ? index.row() : (staging ? staging->count() - 1 : -1);
+            if (staging && from >= 0 && to >= 0 && from != to) {
+                staging->moveItem(from, to);
+            }
+            m_internalMove = true;
+            event->acceptProposedAction();
+            return;
+        }
+        if (!mimeSupported(event->mimeData())) {
             event->ignore();
             return;
         }
 
-        auto *staging = qobject_cast<StagingModel *>(model());
+        auto *staging = qobject_cast<StagingModel *>(this->model());
         if (staging) {
             staging->addMimeData(event->mimeData());
         }
@@ -408,6 +475,21 @@ private:
     static bool isOwnDrag(const QMimeData *mime)
     {
         return mime && mime->hasFormat(QStringLiteral("application/x-gxde-ai-see-staging"));
+    }
+
+    void startRemove(int row)
+    {
+        if (m_removeAnim->state() == QAbstractAnimation::Running) {
+            return;
+        }
+        if (row < 0 || !model() || row >= model()->rowCount()) {
+            return;
+        }
+        m_removingRow = row;
+        m_delegate->setRemoveState(row, 0.0);
+        m_removeAnim->setStartValue(0.0);
+        m_removeAnim->setEndValue(1.0);
+        m_removeAnim->start();
     }
 
     void startDragForIndex(const QModelIndex &index)
@@ -449,10 +531,15 @@ private:
         const Qt::DropAction action =
             drag->exec(Qt::CopyAction | Qt::MoveAction, Qt::CopyAction);
 
+        if (m_internalMove) {
+            m_internalMove = false;
+            return;
+        }
+
         /* Dragging an item out of the staging area consumes it unless it is
          * pinned.  A cancelled drag (Esc / dropped on nothing) keeps it. */
         if (action != Qt::IgnoreAction && !pinned) {
-            auto *staging = qobject_cast<StagingModel *>(model());
+            auto *staging = qobject_cast<StagingModel *>(this->model());
             if (staging) {
                 for (int row = 0; row < staging->count(); ++row) {
                     const StagingItem *item = staging->itemAt(row);
@@ -466,9 +553,12 @@ private:
     }
 
     StagingDelegate *m_delegate = nullptr;
+    QVariantAnimation *m_removeAnim = nullptr;
     QPoint m_pressPos;
     QModelIndex m_pressIndex;
     int m_hoverRow = -1;
+    int m_removingRow = -1;
+    bool m_internalMove = false;
 };
 
 /* ------------------------------------------------------------------------- */
