@@ -11,6 +11,8 @@
 #include "todo/todowindow.h"
 #include "ui/portalpanel.h"
 
+#include <QDBusConnection>
+#include <QDBusMessage>
 #include <QLocalServer>
 #include <QTimer>
 #include <QLocalSocket>
@@ -59,6 +61,26 @@ bool App::init(bool daemon, bool forceShow, bool showTodo, bool showChat)
     });
 
     m_model = new StagingModel(this);
+
+    /* gxde-k9 keeps restarting us; when the compositor has no portal support we
+     * warn once and then stay idle instead of exiting (which would make k9
+     * relaunch us every few seconds). */
+    if (daemon && !PortalClient::instance()->available() &&
+        !Config::instance()->getBool(QStringLiteral("warned/unsupportedEnv"), false)) {
+        QDBusMessage notification = QDBusMessage::createMethodCall(
+            QStringLiteral("org.freedesktop.Notifications"),
+            QStringLiteral("/org/freedesktop/Notifications"),
+            QStringLiteral("org.freedesktop.Notifications"), QStringLiteral("Notify"));
+        notification << QStringLiteral("gxde-ai-see") << 0u
+                     << QStringLiteral("gxde-ai-see")
+                     << tr("小埃同学") 
+                     << tr("当前桌面不支持传送门（需要 GXDE Wayland 合成器）。"
+                           "小埃同学会继续在后台待命，暂存区、内容工厂和对话仍然可用。")
+                     << QStringList() << QVariantMap() << 6000;
+        QDBusConnection::sessionBus().send(notification);
+        Config::instance()->set(QStringLiteral("warned/unsupportedEnv"), true);
+        Config::instance()->sync();
+    }
 
     PortalClient *portal = PortalClient::instance();
     connect(portal, &PortalClient::dragStarted, this, [this](const QString &mimeTypes) {
