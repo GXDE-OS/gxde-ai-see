@@ -1,3 +1,13 @@
+gxde-ai-see (1.0.0~beta) unstable; urgency=medium
+
+  * 首个 beta：传送门原生 drop、暂存区、内容工厂、待办、小埃同学对话
+  * 对话改为 DTK 主窗口，气泡消息、会话管理、MCP、上下文压缩
+  * 内容工厂常驻并支持拖拽展开，动作按内容过滤
+  * 分词胶囊选择、朗读 Dialog、DTK 原生关于窗口
+  * 传送门桌面入口与显隐切换；暂存区清空自动隐藏面板
+
+ -- shenmo <shenmo@spark-app.store>  Fri, 30 Oct 2026 22:30:00 +0800
+
 gxde-ai-see (0.1.0) unstable; urgency=medium
 
   * Initial release: 传送门面板、暂存区、内容工厂、待办与小埃同学对话。

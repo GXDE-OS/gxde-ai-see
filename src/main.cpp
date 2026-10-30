@@ -19,7 +19,7 @@ int main(int argc, char *argv[])
     app.setOrganizationName(QStringLiteral("GXDE"));
     app.setApplicationName(QStringLiteral("gxde-ai-see"));
     app.setApplicationDisplayName(QStringLiteral("GXDE 小埃同学"));
-    app.setApplicationVersion(QStringLiteral("0.1.0"));
+    app.setApplicationVersion(QStringLiteral("1.0.0~beta"));
     QIcon appIcon = QIcon::fromTheme(QStringLiteral("gxde-ai-see"));
     if (appIcon.isNull()) {
         appIcon = QIcon(QStringLiteral("/usr/share/icons/hicolor/256x256/apps/gxde-ai-see.png"));

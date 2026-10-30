@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(gxde-ai-see
-    VERSION 0.1.0
+    VERSION 1.0.0
     DESCRIPTION "GXDE AI See - 小埃同学"
     LANGUAGES CXX
 )
