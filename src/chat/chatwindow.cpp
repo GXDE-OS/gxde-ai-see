@@ -257,7 +257,7 @@ public:
         titleFont.setPixelSize(13);
         titleFont.setWeight(QFont::DemiBold);
         painter->setFont(titleFont);
-        painter->setPen(selected ? palette.textPrimary : palette.textSecondary);
+        painter->setPen(selected ? palette.textPrimary : palette.listTitle);
         const QFontMetrics titleMetrics(titleFont);
         painter->drawText(QRect(row.left() + 10, row.top() + 9, row.width() - 70, 18),
                           Qt::AlignLeft | Qt::AlignVCenter,
@@ -633,7 +633,9 @@ void ChatWindow::setupUi()
     applyTheme();
     connect(DGuiApplicationHelper::instance(), &DGuiApplicationHelper::themeTypeChanged,
             this, [this](DGuiApplicationHelper::ColorType type) {
-                if (type != DGuiApplicationHelper::UnknownType) {
+                if (type == DGuiApplicationHelper::UnknownType) {
+                    ChatTheme::followSystem();
+                } else {
                     ChatTheme::setDark(type == DGuiApplicationHelper::DarkType);
                 }
                 ChatTheme::refresh();
@@ -687,7 +689,7 @@ void ChatWindow::applyTheme()
     m_modelLabel->setStyleSheet(
         QStringLiteral("QLabel { color: %1; background: %2; border-radius: 8px;"
                        " padding: 2px 8px; font-size: 10px; }")
-            .arg(ChatTheme::css(palette.accent), ChatTheme::css(modelBadge)));
+            .arg(ChatTheme::css(palette.badgeText), ChatTheme::css(modelBadge)));
 
     m_status->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;")
                                 .arg(ChatTheme::css(palette.status)));
@@ -709,7 +711,7 @@ void ChatWindow::applyTheme()
             .arg(ChatTheme::css(palette.accentText),
                  ChatTheme::css(palette.accentStrong),
                  ChatTheme::css(palette.accentHover),
-                 ChatTheme::css(palette.hover),
+                 ChatTheme::css(palette.disabledBg),
                  ChatTheme::css(palette.textFaint)));
 
     m_hint->setStyleSheet(QStringLiteral("color: %1; font-size: 10px;")

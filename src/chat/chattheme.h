@@ -24,6 +24,7 @@ struct ChatPalette
     QColor textSecondary;
     QColor textMuted;
     QColor textFaint;
+    QColor listTitle;  ///< conversation title (unselected)
 
     QColor accent;        ///< brand blue for text / tints
     QColor accentStrong;  ///< filled buttons
@@ -34,6 +35,10 @@ struct ChatPalette
     QColor hover;      ///< hovered conversation row
     QColor hoverStrong;  ///< hovered filled/outlined button
     QColor headerBg;     ///< conversation header strip
+    QColor disabledBg;   ///< disabled filled button
+    QColor actionText;   ///< inline message actions / model badge
+    QColor actionTextHover;
+    QColor badgeText;  ///< model badge label
 
     QColor bubbleUser;
     QColor bubbleUserText;
@@ -63,11 +68,23 @@ ChatPalette buildPalette(bool dark);
 /** Colour as a Qt style-sheet value; alpha becomes a percentage. */
 QString css(const QColor &color);
 
+/**
+ * Default style sheet for assistant markdown documents.
+ *
+ * Qt rich text has no colour inheritance from <body>, and the markdown
+ * renderer emits <div>/<h2>/<pre> blocks, so the colour has to be set on the
+ * block selectors themselves.
+ */
+QString assistantDocumentStyle(const ChatPalette &palette);
+
 /** Current theme, derived from the application palette unless forced. */
 bool isDark();
 
 /** Pin the theme (called on startup and whenever DTK reports a change). */
 void setDark(bool dark);
+
+/** Go back to deriving the theme from QApplication::palette(). */
+void followSystem();
 
 /** Drop the cached palette so the next palette() call rebuilds it. */
 void refresh();

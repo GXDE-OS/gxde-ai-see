@@ -30,8 +30,9 @@ ChatPalette buildPalette(bool dark)
 
         p.textPrimary = QColor(0xf2, 0xf2, 0xf2);
         p.textSecondary = alpha(Qt::white, 68);
-        p.textMuted = alpha(Qt::white, 45);
-        p.textFaint = alpha(Qt::white, 32);
+        p.textMuted = alpha(Qt::white, 46);
+        p.textFaint = alpha(Qt::white, 36);
+        p.listTitle = alpha(Qt::white, 84);
 
         p.accent = QColor(0x4a, 0x90, 0xff);
         p.accentStrong = alpha(p.accent, 88);
@@ -42,6 +43,10 @@ ChatPalette buildPalette(bool dark)
         p.hover = alpha(Qt::white, 6);
         p.hoverStrong = alpha(Qt::white, 12);
         p.headerBg = alpha(Qt::white, 2);
+        p.disabledBg = alpha(Qt::white, 10);
+        p.actionText = alpha(QColor(0xa0, 0xc8, 0xf0), 75);
+        p.actionTextHover = QColor(0xcf, 0xe5, 0xff);
+        p.badgeText = p.actionText;
 
         p.bubbleUser = alpha(p.accent, 20);
         p.bubbleUserText = QColor(0xf2, 0xf2, 0xf2);
@@ -68,8 +73,9 @@ ChatPalette buildPalette(bool dark)
 
         p.textPrimary = QColor(0x1c, 0x1c, 0x1e);
         p.textSecondary = alpha(Qt::black, 64);
-        p.textMuted = alpha(Qt::black, 46);
-        p.textFaint = alpha(Qt::black, 34);
+        p.textMuted = alpha(Qt::black, 60);
+        p.textFaint = alpha(Qt::black, 52);
+        p.listTitle = alpha(Qt::black, 72);
 
         p.accent = QColor(0x2f, 0x7e, 0xe8);
         p.accentStrong = alpha(p.accent, 92);
@@ -80,17 +86,21 @@ ChatPalette buildPalette(bool dark)
         p.hover = alpha(Qt::black, 5);
         p.hoverStrong = alpha(Qt::black, 7);
         p.headerBg = alpha(Qt::black, 2);
+        p.disabledBg = alpha(Qt::black, 8);
+        p.actionText = QColor(0x1f, 0x5f, 0xae);
+        p.actionTextHover = QColor(0x0f, 0x4d, 0x93);
+        p.badgeText = QColor(0x1f, 0x5f, 0xae);
 
         p.bubbleUser = alpha(p.accent, 12);
         p.bubbleUserText = QColor(0x1c, 0x1c, 0x1e);
         p.bubbleAssistant = alpha(Qt::black, 5);
         p.bubbleAssistantText = QColor(0x1c, 0x1c, 0x1e);
         p.codeBg = alpha(Qt::black, 6);
-        p.link = QColor(0x1f, 0x6f, 0xd0);
+        p.link = QColor(0x0f, 0x5c, 0xb0);
 
         p.inputBg = alpha(Qt::black, 4);
         p.inputBorder = alpha(Qt::black, 10);
-        p.status = QColor(0xb2, 0x5a, 0x1d);
+        p.status = QColor(0x9a, 0x4a, 0x12);
 
         p.avatarUserBg = alpha(p.accent, 92);
         p.avatarUserText = QColor(Qt::white);
@@ -102,6 +112,24 @@ ChatPalette buildPalette(bool dark)
     }
 
     return p;
+}
+
+QString assistantDocumentStyle(const ChatPalette &palette)
+{
+    /* Qt rich text does not inherit the <body> colour into block elements and
+     * markdownToHtml() emits <div>/<h2>/<pre>, so set it on the blocks. The
+     * link rule comes last so links keep their own colour. */
+    return QStringLiteral("body, div, p, h1, h2, h3, h4, h5, h6, ul, ol, li,"
+                          " pre, code, blockquote, table { color: %1; }"
+                          "pre { background: %2; }"
+                          "code { background: %2; }"
+                          "a { color: %3; }"
+                          "h1, h2, h3 { margin: 4px 0; }"
+                          ".li { margin-left: 10px; }"
+                          ".gap { height: 6px; }")
+        .arg(css(palette.bubbleAssistantText),
+             css(palette.codeBg),
+             css(palette.link));
 }
 
 QString css(const QColor &color)
@@ -139,6 +167,12 @@ void setDark(bool dark)
 {
     g_forced = true;
     g_dark = dark;
+    g_valid = false;
+}
+
+void followSystem()
+{
+    g_forced = false;
     g_valid = false;
 }
 

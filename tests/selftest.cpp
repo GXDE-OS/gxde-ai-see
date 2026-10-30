@@ -183,6 +183,41 @@ int main(int argc, char *argv[])
                         over(lightTheme.accentStrong, lightTheme.window)) >= 3.0,
           "light accent button text contrast >= 3:1");
 
+    check(contrastRatio(darkTheme.textMuted, darkTheme.window) >= 4.5,
+          "dark muted text contrast >= 4.5:1");
+    check(contrastRatio(lightTheme.textMuted, lightTheme.window) >= 4.5,
+          "light muted text contrast >= 4.5:1");
+    check(contrastRatio(darkTheme.listTitle, darkTheme.sidebar) >= 7.0,
+          "dark conversation title contrast >= 7:1");
+    check(contrastRatio(lightTheme.listTitle, lightTheme.sidebar) >= 7.0,
+          "light conversation title contrast >= 7:1");
+    /* Faint text is decorative (timestamps, hints, disabled labels). */
+    check(contrastRatio(darkTheme.textFaint, darkTheme.window) >= 3.0,
+          "dark faint text contrast >= 3:1");
+    check(contrastRatio(lightTheme.textFaint, lightTheme.window) >= 3.0,
+          "light faint text contrast >= 3:1");
+
+    check(contrastRatio(darkTheme.link, darkAssistantBubble) >= 4.5,
+          "dark link contrast >= 4.5:1");
+    check(contrastRatio(lightTheme.link, lightAssistantBubble) >= 4.5,
+          "light link contrast >= 4.5:1");
+    check(contrastRatio(over(darkTheme.status, darkTheme.window), darkTheme.window) >= 4.5,
+          "dark status text contrast >= 4.5:1");
+    check(contrastRatio(lightTheme.status, lightTheme.window) >= 4.5,
+          "light status text contrast >= 4.5:1");
+
+    const auto badgeBackground = [](const ChatPalette &palette) {
+        QColor tint = palette.accent;
+        tint.setAlphaF(0.13);
+        return over(tint, palette.window);
+    };
+    check(contrastRatio(over(darkTheme.badgeText, badgeBackground(darkTheme)),
+                        badgeBackground(darkTheme)) >= 4.5,
+          "dark model badge contrast >= 4.5:1");
+    check(contrastRatio(over(lightTheme.badgeText, badgeBackground(lightTheme)),
+                        badgeBackground(lightTheme)) >= 4.5,
+          "light model badge contrast >= 4.5:1");
+
     // style-sheet helper
     check(ChatTheme::css(QColor(255, 255, 255)) == QStringLiteral("#ffffff"),
           "opaque colour serialised as hex");

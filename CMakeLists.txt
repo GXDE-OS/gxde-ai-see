@@ -108,6 +108,13 @@ add_executable(gxde-ai-see-mcptest
 target_include_directories(gxde-ai-see-mcptest PRIVATE src)
 target_link_libraries(gxde-ai-see-mcptest PRIVATE Qt6::Core)
 
+add_executable(gxde-ai-see-themetest
+    tests/themetest.cpp
+    src/chat/chattheme.cpp
+)
+target_include_directories(gxde-ai-see-themetest PRIVATE src)
+target_link_libraries(gxde-ai-see-themetest PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets)
+
 # translations
 find_program(LRELEASE_EXECUTABLE NAMES lrelease lrelease6)
 file(GLOB TS_FILES ${CMAKE_CURRENT_SOURCE_DIR}/translations/*.ts)

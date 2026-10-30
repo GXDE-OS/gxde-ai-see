@@ -48,7 +48,7 @@ QToolButton *actionButton(const QString &text, QWidget *parent)
         QStringLiteral("QToolButton { color: %1; background: transparent; border: none;"
                        " font-size: 11px; padding: 2px 4px; }"
                        "QToolButton:hover { color: %2; }")
-            .arg(ChatTheme::css(palette.textSecondary), ChatTheme::css(palette.link)));
+            .arg(ChatTheme::css(palette.actionText), ChatTheme::css(palette.actionTextHover)));
     return button;
 }
 
@@ -78,18 +78,8 @@ public:
         setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
         setStyleSheet(QStringLiteral("QTextBrowser { background: transparent; border: none; }"));
         document()->setDocumentMargin(0);
-        const ChatPalette &palette = ChatTheme::palette();
         document()->setDefaultStyleSheet(
-            QStringLiteral("body { color: %1; }"
-                           "pre { background: %2; }"
-                           "code { background: %2; }"
-                           "a { color: %3; }"
-                           "h1, h2, h3 { margin: 4px 0; }"
-                           ".li { margin-left: 10px; }"
-                           ".gap { height: 6px; }")
-                .arg(ChatTheme::css(palette.bubbleAssistantText))
-                .arg(ChatTheme::css(palette.codeBg))
-                .arg(ChatTheme::css(palette.link)));
+            ChatTheme::assistantDocumentStyle(ChatTheme::palette()));
         connect(document()->documentLayout(), &QAbstractTextDocumentLayout::documentSizeChanged,
                 this, [this]() { fitHeight(); });
     }
@@ -322,8 +312,11 @@ void ChatMessageList::restyleWelcome()
 
 void ChatMessageList::refreshTheme()
 {
+    /* Restyle in place of a user-initiated jump: keep the reading position. */
+    const int scroll = verticalScrollBar()->value();
     restyleWelcome();
-    rebuild();
+    rebuild(false);
+    verticalScrollBar()->setValue(scroll);
 }
 
 void ChatMessageList::setMessages(const QVector<ChatMessage> &messages)
@@ -332,7 +325,7 @@ void ChatMessageList::setMessages(const QVector<ChatMessage> &messages)
     rebuild();
 }
 
-void ChatMessageList::rebuild()
+void ChatMessageList::rebuild(bool scrollToBottom)
 {
     for (MessageRow *row : m_rows) {
         m_layout->removeWidget(row);
@@ -391,7 +384,9 @@ void ChatMessageList::rebuild()
         m_rows.append(row);
     }
 
-    QTimer::singleShot(0, this, &ChatMessageList::scrollToBottom);
+    if (scrollToBottom) {
+        QTimer::singleShot(0, this, &ChatMessageList::scrollToBottom);
+    }
 }
 
 void ChatMessageList::appendMessage(const ChatMessage &message)

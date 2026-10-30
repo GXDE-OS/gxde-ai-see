@@ -48,7 +48,7 @@ protected:
     void dropEvent(QDropEvent *event) override;
 
 private:
-    void rebuild();
+    void rebuild(bool scrollToBottom = true);
     void restyleWelcome();
 
     QWidget *m_container = nullptr;
