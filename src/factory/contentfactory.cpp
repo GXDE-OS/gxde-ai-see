@@ -15,6 +15,7 @@
 #include <QMimeData>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPushButton>
 #include <QStyle>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -130,9 +131,13 @@ ContentFactory::ContentFactory(QWidget *parent)
     setAcceptDrops(true);
     setMinimumHeight(44);
 
-    auto *outer = new QVBoxLayout(this);
+    auto *outer = new QHBoxLayout(this);
     outer->setContentsMargins(12, 7, 12, 7);
-    outer->setSpacing(6);
+    outer->setSpacing(10);
+
+    auto *left = new QVBoxLayout;
+    left->setContentsMargins(0, 0, 0, 0);
+    left->setSpacing(6);
 
     auto *header = new QHBoxLayout;
     header->setContentsMargins(0, 0, 0, 0);
@@ -155,7 +160,7 @@ ContentFactory::ContentFactory(QWidget *parent)
     hint->setStyleSheet(QStringLiteral("color: rgba(255,255,255,0.32); font-size: 11px;"));
     header->addWidget(hint);
 
-    outer->addLayout(header);
+    left->addLayout(header);
 
     m_actions = new QWidget(this);
     m_grid = new QGridLayout(m_actions);
@@ -163,7 +168,23 @@ ContentFactory::ContentFactory(QWidget *parent)
     m_grid->setHorizontalSpacing(6);
     m_grid->setVerticalSpacing(6);
     m_actions->hide();
-    outer->addWidget(m_actions);
+    left->addWidget(m_actions);
+
+    outer->addLayout(left, 1);
+
+    m_askButton = new QPushButton(tr("问问\n小埃同学"), this);
+    m_askButton->setCursor(Qt::PointingHandCursor);
+    m_askButton->setFocusPolicy(Qt::NoFocus);
+    m_askButton->setFixedWidth(92);
+    m_askButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+    m_askButton->setStyleSheet(QStringLiteral(
+        "QPushButton { color: white; background: rgba(74,144,255,0.22);"
+        " border: 1px solid rgba(120,180,255,0.45); border-radius: 10px;"
+        " font-size: 12px; }"
+        "QPushButton:hover { background: rgba(74,144,255,0.38);"
+        " border-color: rgba(160,205,255,0.8); }"));
+    connect(m_askButton, &QPushButton::clicked, this, &ContentFactory::askRequested);
+    outer->addWidget(m_askButton);
 }
 
 void ContentFactory::setContent(const DropContent &content)

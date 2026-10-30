@@ -33,6 +33,7 @@ signals:
     void actionRequested(const QString &id, const DropContent &content);
     void heightChanged();
     void dragActivity();
+    void askRequested();
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -42,6 +43,7 @@ private:
     void rebuild();
 
     QLabel *m_summary = nullptr;
+    class QPushButton *m_askButton = nullptr;
     QWidget *m_actions = nullptr;
     QGridLayout *m_grid = nullptr;
     DropContent m_content;

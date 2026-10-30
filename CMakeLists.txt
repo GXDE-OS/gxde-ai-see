@@ -117,6 +117,6 @@ endif()
 
 install(TARGETS gxde-ai-see RUNTIME DESTINATION bin)
 install(FILES data/gxde-ai-see.desktop data/gxde-ai-see-todo.desktop DESTINATION share/applications)
-install(DIRECTORY data/icons/ DESTINATION share/icons/hicolor)
+install(DIRECTORY data/icons/hicolor/ DESTINATION share/icons/hicolor)
 
 include(GNUInstallDirs)

@@ -584,16 +584,6 @@ public:
             }
         });
 
-        m_chatButton = new QPushButton(tr("问问小埃 →"), this);
-        m_chatButton->setCursor(Qt::PointingHandCursor);
-        m_chatButton->setFlat(true);
-        m_chatButton->setFocusPolicy(Qt::NoFocus);
-        m_chatButton->setStyleSheet(QStringLiteral(
-            "QPushButton { color: #9ecbff; background: transparent; border: none;"
-            " font-size: 13px; }"
-            "QPushButton:hover { color: #cfe5ff; }"));
-        connect(m_chatButton, &QPushButton::clicked, this, &PortalZone::chatRequested);
-
         m_hintLabel = new QLabel(this);
         m_hintLabel->setAlignment(Qt::AlignCenter);
         m_hintLabel->setWordWrap(true);
@@ -627,7 +617,6 @@ protected:
     void resizeEvent(QResizeEvent *event) override
     {
         QWidget::resizeEvent(event);
-        m_chatButton->setGeometry(12, height() - 42, width() - 24, 30);
         m_hintLabel->setGeometry(12, height() - 84, width() - 24, 36);
     }
 
@@ -741,7 +730,6 @@ private:
         m_hintTimer.start();
     }
 
-    QPushButton *m_chatButton = nullptr;
     QLabel *m_hintLabel = nullptr;
     QTimer m_hintTimer;
     QTimer m_portalTimer;
@@ -826,7 +814,8 @@ void PortalPanel::setupWindow()
             anchors |= LayerShellQt::Window::AnchorRight;
             anchors |= LayerShellQt::Window::AnchorBottom;
             layer->setAnchors(anchors);
-            layer->setMargins(QMargins(0, 0, m_rightMargin, m_bottomMargin));
+            layer->setMargins(
+                QMargins(0, 0, m_rightMargin, m_bottomMargin + m_factoryOffset));
             layer->setLayer(LayerShellQt::Window::LayerOverlay);
             layer->setKeyboardInteractivity(
                 LayerShellQt::Window::KeyboardInteractivityNone);
@@ -851,7 +840,6 @@ void PortalPanel::setupUi()
     m_zone = new PortalZone(this);
     m_zone->setFixedWidth(kZoneWidth);
     outer->addWidget(m_zone);
-    connect(m_zone, &PortalZone::chatRequested, this, &PortalPanel::openChatRequested);
     connect(m_zone, &PortalZone::portalRequested, this, [this]() {
         PortalClient *portal = PortalClient::instance();
         if (portal->beginPortal()) {
@@ -936,12 +924,19 @@ void PortalPanel::setupUi()
 
     m_factoryTimer = new QTimer(this);
     m_factoryTimer->setSingleShot(true);
-    m_factoryTimer->setInterval(280);
+    m_factoryTimer->setInterval(220);
     connect(m_factoryTimer, &QTimer::timeout, this, [this]() {
-        if (m_factory) {
-            m_factory->clearContent();
-            m_factory->hide();
+        if (!m_factory || !m_factory->isVisible()) {
+            return;
         }
+        /* Dragging from the portal zone into the factory must not hide it:
+         * only hide once the pointer is really outside the panel. */
+        if (rect().contains(mapFromGlobal(QCursor::pos()))) {
+            m_factoryTimer->start();
+            return;
+        }
+        m_factory->clearContent();
+        m_factory->hide();
         refreshLayout();
     });
 
@@ -950,8 +945,13 @@ void PortalPanel::setupUi()
     connect(m_view, &StagingView::dragContent, this, &PortalPanel::noteDragContent);
     connect(m_view, &StagingView::dragFinished, this, &PortalPanel::noteDragFinished);
     connect(m_factory, &ContentFactory::actionRequested, this, &PortalPanel::runFactoryAction);
+    connect(m_factory, &ContentFactory::askRequested, this, &PortalPanel::openChatRequested);
     connect(m_factory, &ContentFactory::heightChanged, this, [this]() { refreshLayout(); });
-    connect(m_factory, &ContentFactory::dragActivity, this, [this]() { m_factoryTimer->stop(); });
+    connect(m_factory, &ContentFactory::dragActivity, this, [this]() {
+        if (m_factoryTimer) {
+            m_factoryTimer->start();
+        }
+    });
 }
 
 void PortalPanel::refreshLayout()
@@ -980,6 +980,13 @@ void PortalPanel::updateGeometryForContent()
     const int totalHeight =
         kMargin * 2 + headerHeight + 6 + selectionHeight + listHeight + factoryHeight;
     resize(kPanelWidth, totalHeight);
+
+    /* Growing downwards would push the portal/s. Staging area off screen: raise
+     * the panel by the factory height so the two columns stay where they are. */
+    if (m_factoryOffset != factoryHeight) {
+        m_factoryOffset = factoryHeight;
+        applyMargins();
+    }
 }
 
 void PortalPanel::noteDragContent(const QMimeData *mime)
@@ -1194,7 +1201,8 @@ void PortalPanel::applyMargins()
 #ifdef GXDE_HAVE_LAYERSHELLQT
     if (QGuiApplication::platformName().startsWith(QLatin1String("wayland"))) {
         if (auto *layer = LayerShellQt::Window::get(windowHandle())) {
-            layer->setMargins(QMargins(0, 0, m_rightMargin, m_bottomMargin));
+            layer->setMargins(
+                QMargins(0, 0, m_rightMargin, m_bottomMargin + m_factoryOffset));
             return;
         }
     }
@@ -1202,7 +1210,7 @@ void PortalPanel::applyMargins()
     if (QScreen *scr = screen() ? screen() : QGuiApplication::primaryScreen()) {
         const QRect available = scr->availableGeometry();
         move(available.right() - width() - m_rightMargin,
-             available.bottom() - height() - m_bottomMargin);
+             available.bottom() - height() - m_bottomMargin - m_factoryOffset);
     }
 }
 
@@ -1322,7 +1330,23 @@ void PortalPanel::showContextMenu(const QPoint &globalPos)
     QAction *about = menu.addAction(tr("关于"));
     QAction *quit = menu.addAction(tr("退出"));
 
-    QAction *chosen = menu.exec(globalPos);
+    menu.ensurePolished();
+    const QSize menuSize = menu.sizeHint();
+    QPoint menuPos = globalPos;
+    QScreen *scr = screen() ? screen() : QGuiApplication::primaryScreen();
+    if (scr) {
+        const QRect available = scr->availableGeometry();
+        if (menuPos.y() + menuSize.height() > available.bottom()) {
+            menuPos.setY(globalPos.y() - menuSize.height());
+        }
+        if (menuPos.y() < available.top()) {
+            menuPos.setY(available.top());
+        }
+        if (menuPos.x() + menuSize.width() > available.right()) {
+            menuPos.setX(available.right() - menuSize.width());
+        }
+    }
+    QAction *chosen = menu.exec(menuPos);
     if (!chosen) {
         return;
     }

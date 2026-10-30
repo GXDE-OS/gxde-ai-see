@@ -39,6 +39,7 @@
 #include <QMimeData>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <DTitlebar>
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QScreen>
@@ -46,6 +47,10 @@
 #include <QShortcut>
 #include <QTextCursor>
 #include <QTextBrowser>
+#include <QIcon>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QUrl>
 #include <QUuid>
 #include <QVBoxLayout>
@@ -224,10 +229,13 @@ private:
 };
 
 ChatWindow::ChatWindow(QWidget *parent)
-    : QWidget(parent)
+    : Dtk::Widget::DMainWindow(parent)
     , m_client(new ChatClient(this))
 {
     setWindowTitle(tr("小埃同学"));
+    titlebar()->setTitle(tr("小埃同学"));
+    titlebar()->setIcon(QApplication::windowIcon());
+    titlebar()->setAutoHideOnFullscreen(true);
     setMinimumSize(760, 520);
     resize(1000, 700);
     m_storePath = Config::instance()->dataDir() + QStringLiteral("/chat.json");
@@ -235,6 +243,18 @@ ChatWindow::ChatWindow(QWidget *parent)
     setupUi();
     McpManager::instance()->reload();
     load();
+
+    /* DeepSeek renamed the API models; map the old presets once. */
+    const QString storedModel =
+        Config::instance()->get(QStringLiteral("chat/model")).toString();
+    if (storedModel == QStringLiteral("deepseek-chat")) {
+        Config::instance()->set(QStringLiteral("chat/model"), QStringLiteral("deepseek-flash"));
+        Config::instance()->sync();
+    } else if (storedModel == QStringLiteral("deepseek-reasoner")) {
+        Config::instance()->set(QStringLiteral("chat/model"), QStringLiteral("deepseek-v4-pro"));
+        Config::instance()->sync();
+    }
+
     m_current = m_conversations.isEmpty() ? -1 : qBound(0, m_current, m_conversations.size() - 1);
     updateSidebar();
     renderConversation();
@@ -337,7 +357,9 @@ ChatWindow::ChatWindow(QWidget *parent)
 
 void ChatWindow::setupUi()
 {
-    auto *root = new QHBoxLayout(this);
+    auto *central = new QWidget(this);
+    setCentralWidget(central);
+    auto *root = new QHBoxLayout(central);
     root->setContentsMargins(0, 0, 0, 0);
     root->setSpacing(0);
 
@@ -356,8 +378,11 @@ void ChatWindow::setupUi()
     brandRow->setSpacing(10);
     auto *logo = new QLabel(sidebarPane);
     logo->setFixedSize(34, 34);
-    logo->setPixmap(QApplication::windowIcon().pixmap(34, 34));
-    logo->setScaledContents(true);
+    const qreal ratio = logo->devicePixelRatioF();
+    QPixmap logoPixmap = QApplication::windowIcon().pixmap(
+        QSize(qRound(34 * ratio), qRound(34 * ratio)));
+    logoPixmap.setDevicePixelRatio(ratio);
+    logo->setPixmap(logoPixmap);
     logo->setStyleSheet(QStringLiteral("border-radius: 8px;"));
     brandRow->addWidget(logo);
 
@@ -448,7 +473,7 @@ void ChatWindow::setupUi()
     m_titleLabel->setStyleSheet(QStringLiteral("color: rgba(255,255,255,0.92);"));
     headerLayout->addWidget(m_titleLabel);
 
-    m_modelLabel = new QLabel(QStringLiteral("deepseek-chat"), header);
+    m_modelLabel = new QLabel(QStringLiteral("deepseek-flash"), header);
     m_modelLabel->setStyleSheet(QStringLiteral(
         "QLabel { color: rgba(160,200,240,0.75); background: rgba(74,144,255,0.13);"
         " border-radius: 8px; padding: 2px 8px; font-size: 10px; }"));
@@ -694,7 +719,7 @@ void ChatWindow::updateHeader()
     m_titleLabel->setText(valid ? m_conversations.at(m_current).title : tr("小埃同学"));
     m_modelLabel->setText(Config::instance()
                               ->get(QStringLiteral("chat/model"),
-                                    QStringLiteral("deepseek-chat"))
+                                    QStringLiteral("deepseek-flash"))
                               .toString());
 }
 
@@ -1046,13 +1071,67 @@ void ChatWindow::openSettings()
 
     auto *modelBox = new QComboBox(&dialog);
     modelBox->setEditable(true);
-    modelBox->addItems({ QStringLiteral("deepseek-chat"),
+    modelBox->addItems({ QStringLiteral("deepseek-flash"),
                          QStringLiteral("deepseek-reasoner") });
     modelBox->setCurrentText(Config::instance()
                                  ->get(QStringLiteral("chat/model"),
-                                       QStringLiteral("deepseek-chat"))
+                                       QStringLiteral("deepseek-flash"))
                                  .toString());
-    form->addRow(tr("模型"), modelBox);
+    auto *modelRow = new QHBoxLayout;
+    modelRow->setSpacing(6);
+    modelRow->addWidget(modelBox, 1);
+    auto *fetchModels = new QPushButton(tr("获取模型列表"), &dialog);
+    modelRow->addWidget(fetchModels);
+    form->addRow(tr("模型"), modelRow);
+
+    connect(fetchModels, &QPushButton::clicked, &dialog, [=, &dialog]() {
+        QString base = baseEdit->text().trimmed();
+        while (base.endsWith(QLatin1Char('/'))) {
+            base.chop(1);
+        }
+        if (base.endsWith(QStringLiteral("/chat/completions"))) {
+            base.chop(int(qstrlen("/chat/completions")));
+        }
+        QNetworkRequest request{QUrl(base + QStringLiteral("/models"))};
+        request.setRawHeader("Authorization",
+                             "Bearer " + keyEdit->text().trimmed().toUtf8());
+        auto *manager = new QNetworkAccessManager(&dialog);
+        QNetworkReply *reply = manager->get(request);
+        fetchModels->setEnabled(false);
+        connect(reply, &QNetworkReply::finished, &dialog, [=]() {
+            fetchModels->setEnabled(true);
+            const QByteArray body = reply->readAll();
+            const QJsonDocument document = QJsonDocument::fromJson(body);
+            const QJsonArray models =
+                document.object().value(QStringLiteral("data")).toArray();
+            if (reply->error() != QNetworkReply::NoError || models.isEmpty()) {
+                fetchModels->setText(tr("获取失败"));
+                fetchModels->setToolTip(QString::fromUtf8(body).left(200));
+                reply->deleteLater();
+                return;
+            }
+            const QString current = modelBox->currentText();
+            modelBox->clear();
+            for (const QJsonValue &value : models) {
+                const QJsonObject object = value.toObject();
+                const QString id = object.value(QStringLiteral("id")).toString();
+                if (id.isEmpty()) {
+                    continue;
+                }
+                modelBox->addItem(id);
+                const QString name = object.value(QStringLiteral("name")).toString();
+                if (!name.isEmpty()) {
+                    modelBox->setItemData(modelBox->count() - 1, name, Qt::ToolTipRole);
+                }
+            }
+            const int index = modelBox->findText(current);
+            if (index >= 0) {
+                modelBox->setCurrentIndex(index);
+            }
+            fetchModels->setText(tr("已更新"));
+            reply->deleteLater();
+        });
+    });
 
     auto *contextSpin = new QSpinBox(&dialog);
     contextSpin->setRange(4, 200);

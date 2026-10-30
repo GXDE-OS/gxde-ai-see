@@ -5,6 +5,7 @@
 
 #include <QJsonArray>
 #include <QVector>
+#include <DMainWindow>
 #include <QWidget>
 
 #include "chatclient.h"
@@ -32,7 +33,7 @@ struct ChatConversation
  * conversation, an item targets that conversation).
  * Right: conversation view (drop targets the current conversation) and input.
  */
-class ChatWindow : public QWidget
+class ChatWindow : public Dtk::Widget::DMainWindow
 {
     Q_OBJECT
 

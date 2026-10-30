@@ -75,6 +75,7 @@ private:
     int m_rightMargin = 16;
     int m_bottomMargin = 16;
     int m_manualListHeight = 0;
+    int m_factoryOffset = 0;
     bool m_fixedPosition = true;
     bool m_fixedSize = false;
     int m_dragMode = 0; // 0 none, 1 move, 2 resize

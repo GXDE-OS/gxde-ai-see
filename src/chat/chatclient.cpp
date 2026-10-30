@@ -48,7 +48,7 @@ bool prepareRequest(const QVector<ChatMessage> &messages, bool stream,
     QJsonObject payload;
     payload.insert(QStringLiteral("model"),
                    Config::instance()
-                       ->get(QStringLiteral("chat/model"), QStringLiteral("deepseek-chat"))
+                       ->get(QStringLiteral("chat/model"), QStringLiteral("deepseek-flash"))
                        .toString());
     QJsonArray allMessages = jsonMessages;
     for (const QJsonValue &extra : extraMessages) {

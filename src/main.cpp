@@ -20,7 +20,11 @@ int main(int argc, char *argv[])
     app.setApplicationName(QStringLiteral("gxde-ai-see"));
     app.setApplicationDisplayName(QStringLiteral("GXDE 小埃同学"));
     app.setApplicationVersion(QStringLiteral("0.1.0"));
-    app.setWindowIcon(QIcon::fromTheme(QStringLiteral("gxde-ai-see")));
+    QIcon appIcon = QIcon::fromTheme(QStringLiteral("gxde-ai-see"));
+    if (appIcon.isNull()) {
+        appIcon = QIcon(QStringLiteral("/usr/share/icons/hicolor/256x256/apps/gxde-ai-see.png"));
+    }
+    app.setWindowIcon(appIcon);
     app.setQuitOnLastWindowClosed(false);
 
     const QString locale = QLocale::system().name();
