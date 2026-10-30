@@ -5,6 +5,8 @@
 
 #include "todomodel.h"
 
+#include "config.h"
+
 #include <QApplication>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -151,6 +153,9 @@ TodoWindow::TodoWindow(TodoModel *model, QWidget *parent)
     setBlurRectYRadius(16);
     setFixedWidth(kWidth);
 
+    m_rightMargin = Config::instance()->getInt(QStringLiteral("todo/rightMargin"), 16);
+    m_topMargin = Config::instance()->getInt(QStringLiteral("todo/topMargin"), 72);
+
     setupWindow();
     setupUi();
 
@@ -171,7 +176,7 @@ void TodoWindow::setupWindow()
             anchors |= LayerShellQt::Window::AnchorRight;
             anchors |= LayerShellQt::Window::AnchorTop;
             layer->setAnchors(anchors);
-            layer->setMargins(QMargins(0, 72, 16, 0));
+            layer->setMargins(QMargins(0, m_topMargin, m_rightMargin, 0));
             layer->setLayer(LayerShellQt::Window::LayerOverlay);
             layer->setKeyboardInteractivity(LayerShellQt::Window::KeyboardInteractivityNone);
             layer->setExclusiveZone(0);
@@ -297,8 +302,69 @@ void TodoWindow::addEntry()
     }
 }
 
+void TodoWindow::applyMargins()
+{
+#ifdef GXDE_HAVE_LAYERSHELLQT
+    if (QGuiApplication::platformName().startsWith(QLatin1String("wayland"))) {
+        if (auto *layer = LayerShellQt::Window::get(windowHandle())) {
+            layer->setMargins(QMargins(0, m_topMargin, m_rightMargin, 0));
+            return;
+        }
+    }
+#endif
+    if (QScreen *scr = screen() ? screen() : QGuiApplication::primaryScreen()) {
+        const QRect available = scr->availableGeometry();
+        move(available.right() - width() - m_rightMargin, available.top() + m_topMargin);
+    }
+}
+
+void TodoWindow::saveMargins()
+{
+    Config::instance()->set(QStringLiteral("todo/rightMargin"), m_rightMargin);
+    Config::instance()->set(QStringLiteral("todo/topMargin"), m_topMargin);
+    Config::instance()->sync();
+}
+
+void TodoWindow::mousePressEvent(QMouseEvent *event)
+{
+    if (event->button() == Qt::LeftButton && event->position().y() < 48) {
+        m_dragging = true;
+        m_dragStart = event->position().toPoint();
+        m_dragStartRight = m_rightMargin;
+        m_dragStartTop = m_topMargin;
+        event->accept();
+        return;
+    }
+    Dtk::Widget::DBlurEffectWidget::mousePressEvent(event);
+}
+
+void TodoWindow::mouseMoveEvent(QMouseEvent *event)
+{
+    if (m_dragging) {
+        const QPoint delta = event->position().toPoint() - m_dragStart;
+        m_rightMargin = qMax(0, m_dragStartRight - delta.x());
+        m_topMargin = qMax(0, m_dragStartTop + delta.y());
+        applyMargins();
+        event->accept();
+        return;
+    }
+    Dtk::Widget::DBlurEffectWidget::mouseMoveEvent(event);
+}
+
+void TodoWindow::mouseReleaseEvent(QMouseEvent *event)
+{
+    if (m_dragging) {
+        m_dragging = false;
+        saveMargins();
+        event->accept();
+        return;
+    }
+    Dtk::Widget::DBlurEffectWidget::mouseReleaseEvent(event);
+}
+
 void TodoWindow::showEvent(QShowEvent *event)
 {
     Dtk::Widget::DBlurEffectWidget::showEvent(event);
     refreshLayout();
+    applyMargins();
 }

@@ -29,13 +29,24 @@ public:
 
 protected:
     void showEvent(QShowEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
 
 private:
     void setupWindow();
     void setupUi();
     void addEntry();
+    void applyMargins();
+    void saveMargins();
 
     TodoModel *m_model = nullptr;
     QListView *m_view = nullptr;
     QLabel *m_countLabel = nullptr;
+    int m_rightMargin = 16;
+    int m_topMargin = 72;
+    bool m_dragging = false;
+    QPoint m_dragStart;
+    int m_dragStartRight = 0;
+    int m_dragStartTop = 0;
 };
