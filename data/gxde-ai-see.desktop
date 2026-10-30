@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=GXDE AI See
+Name[zh_CN]=GXDE 小埃同学
+GenericName=AI Assistant
+GenericName[zh_CN]=AI 助手
+Comment=Drag to a window and it lands in the input box
+Comment[zh_CN]=拖一下，世界就到你手边
+Exec=gxde-ai-see --show
+Icon=gxde-ai-see
+Terminal=false
+Categories=Utility;Office;
+Keywords=ai;chat;deepseek;drag;portal;
+Keywords[zh_CN]=小埃;AI;聊天;拖拽;传送门;
+StartupNotify=false
