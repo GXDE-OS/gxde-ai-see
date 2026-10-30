@@ -10,6 +10,7 @@ Build-Depends: debhelper-compat (= 13),
                qt6-base-dev-tools,
                qt6-svg-dev,
                libdtk6core-dev,
+               libdtk6gui-dev,
                libdtk2widget6-dev,
                liblayershellqtinterface-dev,
                libicu-dev

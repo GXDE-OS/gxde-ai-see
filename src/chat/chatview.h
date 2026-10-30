@@ -29,6 +29,9 @@ public:
     void appendNote(const QString &text);
     void clear();
 
+    /** Rebuild every row after the light/dark theme changed. */
+    void refreshTheme();
+
     void scrollToBottom();
 
 signals:
@@ -46,10 +49,15 @@ protected:
 
 private:
     void rebuild();
+    void restyleWelcome();
 
     QWidget *m_container = nullptr;
     QVBoxLayout *m_layout = nullptr;
     QWidget *m_welcome = nullptr;
+    QLabel *m_welcomeAvatar = nullptr;
+    QLabel *m_welcomeTitle = nullptr;
+    QLabel *m_welcomeHint = nullptr;
     QVector<class MessageRow *> m_rows;
+    QVector<QWidget *> m_notes;
     QVector<ChatMessage> m_messages;
 };

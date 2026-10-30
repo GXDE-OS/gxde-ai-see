@@ -7,8 +7,10 @@
 #include <QDebug>
 #include <QTextStream>
 #include <QTranslator>
+#include <QtMath>
 
 #include "actions/texttools.h"
+#include "chat/chattheme.h"
 #include "factory/contentclassifier.h"
 #include "factory/factoryactions.h"
 #include "factory/linktools.h"
@@ -34,6 +36,32 @@ static bool hasAction(const QVector<FactoryAction> &actions, const QString &id)
         }
     }
     return false;
+}
+
+/** Composite @p foreground (possibly translucent) over @p background. */
+static QColor over(const QColor &foreground, const QColor &background)
+{
+    const qreal alpha = foreground.alphaF();
+    return QColor(qRound(foreground.red() * alpha + background.red() * (1 - alpha)),
+                  qRound(foreground.green() * alpha + background.green() * (1 - alpha)),
+                  qRound(foreground.blue() * alpha + background.blue() * (1 - alpha)));
+}
+
+static qreal relativeLuminance(const QColor &color)
+{
+    const auto channel = [](int value) {
+        const qreal c = value / 255.0;
+        return c <= 0.03928 ? c / 12.92 : qPow((c + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * channel(color.red()) + 0.7152 * channel(color.green()) +
+        0.0722 * channel(color.blue());
+}
+
+static qreal contrastRatio(const QColor &foreground, const QColor &background)
+{
+    const qreal a = relativeLuminance(over(foreground, background));
+    const qreal b = relativeLuminance(background);
+    return (qMax(a, b) + 0.05) / (qMin(a, b) + 0.05);
 }
 
 int main(int argc, char *argv[])
@@ -120,6 +148,46 @@ int main(int argc, char *argv[])
         ContentClassifier::classifyText(QStringLiteral("https://example.com/a.zip"));
     check(linkContent.kind == DropContent::Link, "link classified as link");
     check(hasAction(actionsFor(linkContent), QStringLiteral("save_as")), "link offers save as");
+
+    // chat theme palettes (light / dark following DTK)
+    const ChatPalette darkTheme = ChatTheme::buildPalette(true);
+    const ChatPalette lightTheme = ChatTheme::buildPalette(false);
+    check(darkTheme.dark && !lightTheme.dark, "palette builder reports the requested mode");
+    check(darkTheme.window.lightness() < 80, "dark palette uses a dark window background");
+    check(lightTheme.window.lightness() > 200, "light palette uses a light window background");
+    check(darkTheme.textPrimary != lightTheme.textPrimary, "text colour differs per theme");
+    check(darkTheme.accentStrong != lightTheme.accentStrong, "accent differs per theme");
+
+    const QColor darkAssistantBubble = over(darkTheme.bubbleAssistant, darkTheme.window);
+    const QColor lightAssistantBubble = over(lightTheme.bubbleAssistant, lightTheme.window);
+    const QColor darkUserBubble = over(darkTheme.bubbleUser, darkTheme.window);
+    const QColor lightUserBubble = over(lightTheme.bubbleUser, lightTheme.window);
+    check(contrastRatio(darkTheme.textPrimary, darkTheme.window) >= 7.0,
+          "dark primary text contrast >= 7:1");
+    check(contrastRatio(lightTheme.textPrimary, lightTheme.window) >= 7.0,
+          "light primary text contrast >= 7:1");
+    check(contrastRatio(darkTheme.bubbleAssistantText, darkAssistantBubble) >= 4.5,
+          "dark assistant bubble text contrast >= 4.5:1");
+    check(contrastRatio(lightTheme.bubbleAssistantText, lightAssistantBubble) >= 4.5,
+          "light assistant bubble text contrast >= 4.5:1");
+    check(contrastRatio(darkTheme.bubbleUserText, darkUserBubble) >= 4.5,
+          "dark user bubble text contrast >= 4.5:1");
+    check(contrastRatio(lightTheme.bubbleUserText, lightUserBubble) >= 4.5,
+          "light user bubble text contrast >= 4.5:1");
+    /* Filled buttons keep the brand blue; white on it clears the 3:1 UI
+     * component floor even though it does not reach body-text contrast. */
+    check(contrastRatio(darkTheme.accentText,
+                        over(darkTheme.accentStrong, darkTheme.window)) >= 3.0,
+          "dark accent button text contrast >= 3:1");
+    check(contrastRatio(lightTheme.accentText,
+                        over(lightTheme.accentStrong, lightTheme.window)) >= 3.0,
+          "light accent button text contrast >= 3:1");
+
+    // style-sheet helper
+    check(ChatTheme::css(QColor(255, 255, 255)) == QStringLiteral("#ffffff"),
+          "opaque colour serialised as hex");
+    check(ChatTheme::css(QColor(0, 0, 0, 128)) == QStringLiteral("rgba(0,0,0,50%)"),
+          "translucent colour serialised as rgba percentage");
 
     QTextStream(stdout) << (failures == 0 ? "ALL PASS\n" : "FAILURES\n");
     return failures == 0 ? 0 : 1;

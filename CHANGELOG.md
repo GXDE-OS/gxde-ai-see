@@ -1,5 +1,11 @@
 # 更新日志
 
+## 未发布
+
+- 对话窗口支持浅色 / 深色主题跟随 DTK：新增 `ChatTheme` 双套调色板，
+  侧栏、气泡、输入区、会话列表、系统提示随 `DGuiApplicationHelper::themeTypeChanged`
+  实时切换；补齐全浅色对比度自检 · shenmo <shenmo@spark-app.store>
+
 ## 1.0.0~beta2 — 2026-10-30
 
 - 会话列表：拖拽排序、多选、批量删除

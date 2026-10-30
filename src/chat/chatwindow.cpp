@@ -5,11 +5,13 @@
 
 #include "config.h"
 #include "chatview.h"
+#include "chattheme.h"
 
 #include "../ui/aboutdialog.h"
 #include "markdown.h"
 #include "mcpclient.h"
 
+#include <DGuiApplicationHelper>
 #include <QCheckBox>
 #include <QClipboard>
 #include <QApplication>
@@ -56,6 +58,8 @@
 #include <QUrl>
 #include <QUuid>
 #include <QVBoxLayout>
+
+DGUI_USE_NAMESPACE
 
 namespace {
 
@@ -240,11 +244,12 @@ public:
         painter->save();
         painter->setRenderHint(QPainter::Antialiasing, true);
 
+        const ChatPalette &palette = ChatTheme::palette();
         const QRect row = option.rect.adjusted(2, 2, -2, -2);
         const bool selected = option.state & QStyle::State_Selected;
         if (selected || index.row() == m_hoverRow) {
             painter->setPen(Qt::NoPen);
-            painter->setBrush(selected ? QColor(120, 180, 255, 62) : QColor(255, 255, 255, 16));
+            painter->setBrush(selected ? palette.highlight : palette.hover);
             painter->drawRoundedRect(row, 8, 8);
         }
 
@@ -252,7 +257,7 @@ public:
         titleFont.setPixelSize(13);
         titleFont.setWeight(QFont::DemiBold);
         painter->setFont(titleFont);
-        painter->setPen(selected ? QColor(255, 255, 255, 245) : QColor(255, 255, 255, 215));
+        painter->setPen(selected ? palette.textPrimary : palette.textSecondary);
         const QFontMetrics titleMetrics(titleFont);
         painter->drawText(QRect(row.left() + 10, row.top() + 9, row.width() - 70, 18),
                           Qt::AlignLeft | Qt::AlignVCenter,
@@ -262,14 +267,14 @@ public:
         QFont smallFont = option.font;
         smallFont.setPixelSize(10);
         painter->setFont(smallFont);
-        painter->setPen(QColor(255, 255, 255, 95));
+        painter->setPen(palette.textFaint);
         painter->drawText(QRect(row.right() - 56, row.top() + 10, 46, 14),
                           Qt::AlignRight | Qt::AlignVCenter,
                           index.data(kTimeRole).toString());
 
         smallFont.setPixelSize(11);
         painter->setFont(smallFont);
-        painter->setPen(QColor(255, 255, 255, 115));
+        painter->setPen(palette.textMuted);
         const QFontMetrics previewMetrics(smallFont);
         painter->drawText(QRect(row.left() + 10, row.top() + 30, row.width() - 20, 16),
                           Qt::AlignLeft | Qt::AlignVCenter,
@@ -412,6 +417,17 @@ ChatWindow::ChatWindow(QWidget *parent)
 
 void ChatWindow::setupUi()
 {
+    /* Pick the palette before any child widget is built: message rows and the
+     * welcome page read ChatTheme::palette() from their constructors.
+     * UnknownType means "follow the system palette", which ChatTheme derives
+     * from QApplication::palette(). */
+    const DGuiApplicationHelper::ColorType themeType =
+        DGuiApplicationHelper::instance()->themeType();
+    if (themeType != DGuiApplicationHelper::UnknownType) {
+        ChatTheme::setDark(themeType == DGuiApplicationHelper::DarkType);
+    }
+    ChatTheme::refresh();
+
     auto *central = new QWidget(this);
     setCentralWidget(central);
     auto *root = new QHBoxLayout(central);
@@ -422,8 +438,7 @@ void ChatWindow::setupUi()
     auto *sidebarPane = new QWidget(this);
     sidebarPane->setObjectName(QStringLiteral("sidebar"));
     sidebarPane->setFixedWidth(264);
-    sidebarPane->setStyleSheet(QStringLiteral(
-        "#sidebar { background: #17171b; border-right: 1px solid rgba(255,255,255,0.06); }"));
+    m_sidebarPane = sidebarPane;
 
     auto *sidebarLayout = new QVBoxLayout(sidebarPane);
     sidebarLayout->setContentsMargins(14, 16, 14, 12);
@@ -448,10 +463,10 @@ void ChatWindow::setupUi()
     brandFont.setPixelSize(15);
     brandFont.setWeight(QFont::DemiBold);
     brand->setFont(brandFont);
-    brand->setStyleSheet(QStringLiteral("color: rgba(255,255,255,0.92);"));
+    m_brand = brand;
     brandColumn->addWidget(brand);
     auto *brandSub = new QLabel(QStringLiteral("GXDE AI See"), sidebarPane);
-    brandSub->setStyleSheet(QStringLiteral("color: rgba(255,255,255,0.35); font-size: 10px;"));
+    m_brandSub = brandSub;
     brandColumn->addWidget(brandSub);
     brandRow->addLayout(brandColumn);
     brandRow->addStretch();
@@ -460,10 +475,7 @@ void ChatWindow::setupUi()
     auto *newButton = new QPushButton(tr("＋ 新建对话"), sidebarPane);
     newButton->setCursor(Qt::PointingHandCursor);
     newButton->setFixedHeight(34);
-    newButton->setStyleSheet(QStringLiteral(
-        "QPushButton { color: white; background: rgba(74,144,255,0.85); border: none;"
-        " border-radius: 9px; font-size: 12px; }"
-        "QPushButton:hover { background: rgba(90,160,255,0.95); }"));
+    m_newButton = newButton;
     sidebarLayout->addWidget(newButton);
 
     m_sidebar = new ChatSidebar(sidebarPane);
@@ -489,16 +501,13 @@ void ChatWindow::setupUi()
     bottomRow->setSpacing(6);
     auto *settingsButton = new QPushButton(tr("⚙ 设置"), sidebarPane);
     settingsButton->setCursor(Qt::PointingHandCursor);
-    settingsButton->setStyleSheet(QStringLiteral(
-        "QPushButton { color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.06);"
-        " border: none; border-radius: 8px; padding: 6px 8px; font-size: 12px; }"
-        "QPushButton:hover { background: rgba(255,255,255,0.12); color: white; }"));
+    m_settingsButton = settingsButton;
     bottomRow->addWidget(settingsButton, 1);
 
     auto *menuButton = new QPushButton(QStringLiteral("⋯"), sidebarPane);
     menuButton->setCursor(Qt::PointingHandCursor);
     menuButton->setFixedWidth(38);
-    menuButton->setStyleSheet(settingsButton->styleSheet());
+    m_menuButton = menuButton;
     bottomRow->addWidget(menuButton);
     sidebarLayout->addLayout(bottomRow);
 
@@ -506,16 +515,14 @@ void ChatWindow::setupUi()
 
     /* ---------------- chat pane ---------------- */
     auto *pane = new QWidget(this);
-    pane->setStyleSheet(QStringLiteral("background: #1e1e22;"));
+    m_chatPane = pane;
     auto *paneLayout = new QVBoxLayout(pane);
     paneLayout->setContentsMargins(0, 0, 0, 0);
     paneLayout->setSpacing(0);
 
     auto *header = new QWidget(pane);
     header->setFixedHeight(56);
-    header->setStyleSheet(QStringLiteral(
-        "QWidget { background: rgba(255,255,255,0.02);"
-        " border-bottom: 1px solid rgba(255,255,255,0.06); }"));
+    m_header = header;
     auto *headerLayout = new QHBoxLayout(header);
     headerLayout->setContentsMargins(20, 0, 16, 0);
     headerLayout->setSpacing(10);
@@ -525,13 +532,9 @@ void ChatWindow::setupUi()
     titleFont.setPixelSize(15);
     titleFont.setWeight(QFont::DemiBold);
     m_titleLabel->setFont(titleFont);
-    m_titleLabel->setStyleSheet(QStringLiteral("color: rgba(255,255,255,0.92);"));
     headerLayout->addWidget(m_titleLabel);
 
     m_modelLabel = new QLabel(QStringLiteral("deepseek-flash"), header);
-    m_modelLabel->setStyleSheet(QStringLiteral(
-        "QLabel { color: rgba(160,200,240,0.75); background: rgba(74,144,255,0.13);"
-        " border-radius: 8px; padding: 2px 8px; font-size: 10px; }"));
     headerLayout->addWidget(m_modelLabel);
     headerLayout->addStretch();
     paneLayout->addWidget(header);
@@ -541,7 +544,6 @@ void ChatWindow::setupUi()
 
     m_status = new QLabel(pane);
     m_status->setContentsMargins(20, 0, 20, 0);
-    m_status->setStyleSheet(QStringLiteral("color: rgba(255,170,120,0.9); font-size: 12px;"));
     m_status->hide();
     paneLayout->addWidget(m_status);
 
@@ -551,9 +553,7 @@ void ChatWindow::setupUi()
     inputLayout->setSpacing(5);
 
     auto *inputFrame = new QFrame(inputPane);
-    inputFrame->setStyleSheet(QStringLiteral(
-        "QFrame { background: rgba(255,255,255,0.055);"
-        " border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; }"));
+    m_inputFrame = inputFrame;
     auto *frameLayout = new QHBoxLayout(inputFrame);
     frameLayout->setContentsMargins(12, 8, 8, 8);
     frameLayout->setSpacing(8);
@@ -561,26 +561,17 @@ void ChatWindow::setupUi()
     m_input = new QPlainTextEdit(inputFrame);
     m_input->setPlaceholderText(tr("输入消息，Ctrl+Enter 发送；也可以把文件/文字拖进窗口"));
     m_input->setFixedHeight(64);
-    m_input->setStyleSheet(QStringLiteral(
-        "QPlainTextEdit { background: transparent; color: rgba(245,245,245,0.95);"
-        " border: none; font-size: 13px; }"));
     frameLayout->addWidget(m_input, 1);
 
     m_sendButton = new QPushButton(tr("发送"), inputFrame);
     m_sendButton->setFixedSize(72, 34);
     m_sendButton->setCursor(Qt::PointingHandCursor);
-    m_sendButton->setStyleSheet(QStringLiteral(
-        "QPushButton { color: white; background: rgba(74,144,255,0.9); border: none;"
-        " border-radius: 9px; font-size: 13px; }"
-        "QPushButton:hover { background: rgba(90,160,255,1.0); }"
-        "QPushButton:disabled { background: rgba(255,255,255,0.1);"
-        " color: rgba(255,255,255,0.35); }"));
     frameLayout->addWidget(m_sendButton, 0, Qt::AlignBottom);
     inputLayout->addWidget(inputFrame);
 
     auto *hint = new QLabel(tr("Enter 换行 · Ctrl+Enter 发送 · 支持拖入文件/链接/图片"), inputPane);
-    hint->setStyleSheet(QStringLiteral("color: rgba(255,255,255,0.3); font-size: 10px;"));
     hint->setAlignment(Qt::AlignRight);
+    m_hint = hint;
     inputLayout->addWidget(hint);
     paneLayout->addWidget(inputPane);
 
@@ -638,6 +629,91 @@ void ChatWindow::setupUi()
     connect(sendShortcut, &QShortcut::activated, this, &ChatWindow::sendMessage);
     auto *sendShortcut2 = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_Enter), m_input);
     connect(sendShortcut2, &QShortcut::activated, this, &ChatWindow::sendMessage);
+
+    applyTheme();
+    connect(DGuiApplicationHelper::instance(), &DGuiApplicationHelper::themeTypeChanged,
+            this, [this](DGuiApplicationHelper::ColorType type) {
+                if (type != DGuiApplicationHelper::UnknownType) {
+                    ChatTheme::setDark(type == DGuiApplicationHelper::DarkType);
+                }
+                ChatTheme::refresh();
+                applyTheme();
+                m_messages->refreshTheme();
+            });
+}
+
+void ChatWindow::applyTheme()
+{
+    const ChatPalette &palette = ChatTheme::palette();
+
+    m_chatPane->setStyleSheet(
+        QStringLiteral("background: %1;").arg(ChatTheme::css(palette.window)));
+
+    m_sidebarPane->setStyleSheet(
+        QStringLiteral("#sidebar { background: %1; border-right: 1px solid %2; }")
+            .arg(ChatTheme::css(palette.sidebar), ChatTheme::css(palette.separator)));
+    m_brand->setStyleSheet(QStringLiteral("color: %1;").arg(ChatTheme::css(palette.textPrimary)));
+    m_brandSub->setStyleSheet(QStringLiteral("color: %1; font-size: 10px;")
+                                  .arg(ChatTheme::css(palette.textFaint)));
+
+    m_newButton->setStyleSheet(
+        QStringLiteral("QPushButton { color: %1; background: %2; border: none;"
+                       " border-radius: 9px; font-size: 12px; }"
+                       "QPushButton:hover { background: %3; }")
+            .arg(ChatTheme::css(palette.accentText),
+                 ChatTheme::css(palette.accentStrong),
+                 ChatTheme::css(palette.accentHover)));
+
+    const QString secondaryButton =
+        QStringLiteral("QPushButton { color: %1; background: %2; border: none;"
+                       " border-radius: 8px; padding: 6px 8px; font-size: 12px; }"
+                       "QPushButton:hover { background: %3; color: %4; }")
+            .arg(ChatTheme::css(palette.textSecondary),
+                 ChatTheme::css(palette.inputBg),
+                 ChatTheme::css(palette.hoverStrong),
+                 ChatTheme::css(palette.textPrimary));
+    m_settingsButton->setStyleSheet(secondaryButton);
+    m_menuButton->setStyleSheet(secondaryButton);
+
+    m_header->setStyleSheet(
+        QStringLiteral("QWidget { background: %1; border-bottom: 1px solid %2; }")
+            .arg(ChatTheme::css(palette.headerBg), ChatTheme::css(palette.separator)));
+
+    m_titleLabel->setStyleSheet(
+        QStringLiteral("color: %1;").arg(ChatTheme::css(palette.textPrimary)));
+
+    QColor modelBadge = palette.accent;
+    modelBadge.setAlphaF(0.13);
+    m_modelLabel->setStyleSheet(
+        QStringLiteral("QLabel { color: %1; background: %2; border-radius: 8px;"
+                       " padding: 2px 8px; font-size: 10px; }")
+            .arg(ChatTheme::css(palette.accent), ChatTheme::css(modelBadge)));
+
+    m_status->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;")
+                                .arg(ChatTheme::css(palette.status)));
+
+    m_inputFrame->setStyleSheet(
+        QStringLiteral("QFrame { background: %1; border: 1px solid %2;"
+                       " border-radius: 12px; }")
+            .arg(ChatTheme::css(palette.inputBg), ChatTheme::css(palette.inputBorder)));
+    m_input->setStyleSheet(
+        QStringLiteral("QPlainTextEdit { background: transparent; color: %1;"
+                       " border: none; font-size: 13px; }")
+            .arg(ChatTheme::css(palette.textPrimary)));
+
+    m_sendButton->setStyleSheet(
+        QStringLiteral("QPushButton { color: %1; background: %2; border: none;"
+                       " border-radius: 9px; font-size: 13px; }"
+                       "QPushButton:hover { background: %3; }"
+                       "QPushButton:disabled { background: %4; color: %5; }")
+            .arg(ChatTheme::css(palette.accentText),
+                 ChatTheme::css(palette.accentStrong),
+                 ChatTheme::css(palette.accentHover),
+                 ChatTheme::css(palette.hover),
+                 ChatTheme::css(palette.textFaint)));
+
+    m_hint->setStyleSheet(QStringLiteral("color: %1; font-size: 10px;")
+                              .arg(ChatTheme::css(palette.textFaint)));
 }
 
 void ChatWindow::load()
@@ -1342,7 +1418,8 @@ void ChatWindow::openSettings()
         &dialog);
     hint->setWordWrap(true);
     hint->setOpenExternalLinks(true);
-    hint->setStyleSheet(QStringLiteral("color: rgba(255,255,255,0.55); font-size: 12px;"));
+    hint->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;")
+                            .arg(ChatTheme::css(ChatTheme::palette().textSecondary)));
     layout->addWidget(hint);
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel,

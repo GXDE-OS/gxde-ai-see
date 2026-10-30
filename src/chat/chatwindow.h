@@ -14,6 +14,7 @@ class QLabel;
 class QListWidget;
 class QPlainTextEdit;
 class QPushButton;
+class QFrame;
 class ChatMessageList;
 class QMimeData;
 class QUrl;
@@ -55,6 +56,7 @@ protected:
 
 private:
     void setupUi();
+    void applyTheme();
     void load();
     void save() const;
     void newConversation();
@@ -89,6 +91,18 @@ private:
     QPushButton *m_sendButton = nullptr;
     QLabel *m_status = nullptr;
     ChatClient *m_client = nullptr;
+
+    /* themed chrome, restyled by applyTheme() */
+    QWidget *m_sidebarPane = nullptr;
+    QWidget *m_chatPane = nullptr;
+    QWidget *m_header = nullptr;
+    QFrame *m_inputFrame = nullptr;
+    QLabel *m_brand = nullptr;
+    QLabel *m_brandSub = nullptr;
+    QLabel *m_hint = nullptr;
+    QPushButton *m_newButton = nullptr;
+    QPushButton *m_settingsButton = nullptr;
+    QPushButton *m_menuButton = nullptr;
 
     QVector<ChatConversation> m_conversations;
     int m_current = -1;

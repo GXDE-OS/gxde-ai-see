@@ -5,6 +5,7 @@
 
 #include <QMimeData>
 
+#include "chattheme.h"
 #include "markdown.h"
 
 #include <QDragEnterEvent>
@@ -25,28 +26,38 @@ namespace {
 constexpr int kAvatarSize = 30;
 constexpr int kBubbleMaxWidth = 580;
 
-QString avatarStyle(bool user)
+QString avatarStyle(const ChatPalette &palette, bool user)
 {
-    return user ? QStringLiteral("QLabel { background: rgba(74,144,255,0.85); color: white;"
-                                 " border-radius: %1px; font-size: 12px; }")
-                      .arg(kAvatarSize / 2)
-                : QStringLiteral("QLabel { background: rgba(255,255,255,0.14); color: #eaeaea;"
-                                 " border-radius: %1px; font-size: 12px; }")
-                      .arg(kAvatarSize / 2);
+    const QColor background = user ? palette.avatarUserBg : palette.avatarAssistantBg;
+    const QColor foreground = user ? palette.avatarUserText : palette.avatarAssistantText;
+    return QStringLiteral("QLabel { background: %1; color: %2;"
+                          " border-radius: %3px; font-size: 12px; }")
+        .arg(ChatTheme::css(background), ChatTheme::css(foreground))
+        .arg(kAvatarSize / 2);
 }
 
 QToolButton *actionButton(const QString &text, QWidget *parent)
 {
+    const ChatPalette &palette = ChatTheme::palette();
     auto *button = new QToolButton(parent);
     button->setText(text);
     button->setCursor(Qt::PointingHandCursor);
     button->setFocusPolicy(Qt::NoFocus);
     button->setAutoRaise(true);
-    button->setStyleSheet(QStringLiteral(
-        "QToolButton { color: rgba(160,200,240,0.75); background: transparent; border: none;"
-        " font-size: 11px; padding: 2px 4px; }"
-        "QToolButton:hover { color: #cfe5ff; }"));
+    button->setStyleSheet(
+        QStringLiteral("QToolButton { color: %1; background: transparent; border: none;"
+                       " font-size: 11px; padding: 2px 4px; }"
+                       "QToolButton:hover { color: %2; }")
+            .arg(ChatTheme::css(palette.textSecondary), ChatTheme::css(palette.link)));
     return button;
+}
+
+QString noteStyle()
+{
+    const ChatPalette &palette = ChatTheme::palette();
+    return QStringLiteral("QLabel { color: %1; background: %2; border-radius: 8px;"
+                          " padding: 6px 10px; font-size: 11px; }")
+        .arg(ChatTheme::css(palette.textMuted), ChatTheme::css(palette.noteBg));
 }
 
 } // namespace
@@ -67,14 +78,18 @@ public:
         setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
         setStyleSheet(QStringLiteral("QTextBrowser { background: transparent; border: none; }"));
         document()->setDocumentMargin(0);
-        document()->setDefaultStyleSheet(QStringLiteral(
-            "body { color: #ececec; }"
-            "pre { background: #2b2b31; }"
-            "code { background: #2b2b31; }"
-            "a { color: #7aa7d9; }"
-            "h1, h2, h3 { margin: 4px 0; }"
-            ".li { margin-left: 10px; }"
-            ".gap { height: 6px; }"));
+        const ChatPalette &palette = ChatTheme::palette();
+        document()->setDefaultStyleSheet(
+            QStringLiteral("body { color: %1; }"
+                           "pre { background: %2; }"
+                           "code { background: %2; }"
+                           "a { color: %3; }"
+                           "h1, h2, h3 { margin: 4px 0; }"
+                           ".li { margin-left: 10px; }"
+                           ".gap { height: 6px; }")
+                .arg(ChatTheme::css(palette.bubbleAssistantText))
+                .arg(ChatTheme::css(palette.codeBg))
+                .arg(ChatTheme::css(palette.link)));
         connect(document()->documentLayout(), &QAbstractTextDocumentLayout::documentSizeChanged,
                 this, [this]() { fitHeight(); });
     }
@@ -118,27 +133,29 @@ public:
         row->setContentsMargins(4, 2, 4, 2);
         row->setSpacing(8);
 
+        const ChatPalette &palette = ChatTheme::palette();
+
         auto *avatar = new QLabel(m_isUser ? tr("你") : tr("埃"), this);
         avatar->setFixedSize(kAvatarSize, kAvatarSize);
         avatar->setAlignment(Qt::AlignCenter);
-        avatar->setStyleSheet(avatarStyle(m_isUser));
+        avatar->setStyleSheet(avatarStyle(palette, m_isUser));
 
         auto *column = new QVBoxLayout;
         column->setContentsMargins(0, 0, 0, 0);
         column->setSpacing(3);
 
         auto *meta = new QLabel(m_isUser ? tr("你") : tr("小埃"), this);
-        meta->setStyleSheet(QStringLiteral("color: rgba(255,255,255,0.4); font-size: 10px;"));
+        meta->setStyleSheet(QStringLiteral("color: %1; font-size: 10px;")
+                                .arg(ChatTheme::css(palette.textMuted)));
         meta->setAlignment(m_isUser ? Qt::AlignRight : Qt::AlignLeft);
         column->addWidget(meta);
 
         auto *bubble = new QFrame(this);
         bubble->setMaximumWidth(kBubbleMaxWidth + 26);
         bubble->setStyleSheet(
-            m_isUser ? QStringLiteral("QFrame { background: rgba(74,144,255,0.20);"
-                                      " border-radius: 12px; }")
-                     : QStringLiteral("QFrame { background: rgba(255,255,255,0.065);"
-                                      " border-radius: 12px; }"));
+            QStringLiteral("QFrame { background: %1; border-radius: 12px; }")
+                .arg(ChatTheme::css(m_isUser ? palette.bubbleUser
+                                             : palette.bubbleAssistant)));
         auto *bubbleLayout = new QVBoxLayout(bubble);
         bubbleLayout->setContentsMargins(13, 9, 13, 9);
         bubbleLayout->setSpacing(0);
@@ -149,7 +166,8 @@ public:
             label->setWordWrap(true);
             label->setTextInteractionFlags(Qt::TextSelectableByMouse);
             label->setMaximumWidth(kBubbleMaxWidth);
-            label->setStyleSheet(QStringLiteral("QLabel { color: #f2f2f2; font-size: 13px; }"));
+            label->setStyleSheet(QStringLiteral("QLabel { color: %1; font-size: 13px; }")
+                                     .arg(ChatTheme::css(palette.bubbleUserText)));
             label->setText(escapedHtml(message.content));
             m_label = label;
             bubbleLayout->addWidget(label);
@@ -263,9 +281,7 @@ ChatMessageList::ChatMessageList(QWidget *parent)
     auto *bigAvatar = new QLabel(tr("埃"), m_welcome);
     bigAvatar->setFixedSize(64, 64);
     bigAvatar->setAlignment(Qt::AlignCenter);
-    bigAvatar->setStyleSheet(QStringLiteral(
-        "QLabel { background: rgba(74,144,255,0.22); color: #cfe5ff; border-radius: 32px;"
-        " font-size: 26px; }"));
+    m_welcomeAvatar = bigAvatar;
     welcomeLayout->addWidget(bigAvatar, 0, Qt::AlignHCenter);
 
     auto *title = new QLabel(tr("你好，我是小埃同学"), m_welcome);
@@ -273,7 +289,7 @@ ChatMessageList::ChatMessageList(QWidget *parent)
     titleFont.setPixelSize(20);
     titleFont.setWeight(QFont::DemiBold);
     title->setFont(titleFont);
-    title->setStyleSheet(QStringLiteral("color: rgba(255,255,255,0.9);"));
+    m_welcomeTitle = title;
     welcomeLayout->addWidget(title, 0, Qt::AlignHCenter);
 
     auto *hint = new QLabel(
@@ -282,10 +298,32 @@ ChatMessageList::ChatMessageList(QWidget *parent)
         m_welcome);
     hint->setAlignment(Qt::AlignCenter);
     hint->setWordWrap(true);
-    hint->setStyleSheet(QStringLiteral("color: rgba(255,255,255,0.5); font-size: 12px;"));
+    m_welcomeHint = hint;
     welcomeLayout->addWidget(hint, 0, Qt::AlignHCenter);
 
+    restyleWelcome();
+
     m_layout->insertWidget(0, m_welcome);
+}
+
+void ChatMessageList::restyleWelcome()
+{
+    const ChatPalette &palette = ChatTheme::palette();
+    m_welcomeAvatar->setStyleSheet(
+        QStringLiteral("QLabel { background: %1; color: %2; border-radius: 32px;"
+                       " font-size: 26px; }")
+            .arg(ChatTheme::css(palette.welcomeAvatarBg),
+                 ChatTheme::css(palette.welcomeAvatarText)));
+    m_welcomeTitle->setStyleSheet(
+        QStringLiteral("color: %1;").arg(ChatTheme::css(palette.textPrimary)));
+    m_welcomeHint->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;")
+                                     .arg(ChatTheme::css(palette.textMuted)));
+}
+
+void ChatMessageList::refreshTheme()
+{
+    restyleWelcome();
+    rebuild();
 }
 
 void ChatMessageList::setMessages(const QVector<ChatMessage> &messages)
@@ -298,9 +336,17 @@ void ChatMessageList::rebuild()
 {
     for (MessageRow *row : m_rows) {
         m_layout->removeWidget(row);
+        row->hide();
         row->deleteLater();
     }
     m_rows.clear();
+
+    for (QWidget *note : m_notes) {
+        m_layout->removeWidget(note);
+        note->hide();
+        note->deleteLater();
+    }
+    m_notes.clear();
 
     bool hasConversation = false;
     for (const ChatMessage &message : m_messages) {
@@ -328,11 +374,9 @@ void ChatMessageList::rebuild()
                 auto *note = new QLabel(message.content, m_container);
                 note->setWordWrap(true);
                 note->setAlignment(Qt::AlignCenter);
-                note->setStyleSheet(QStringLiteral(
-                    "QLabel { color: rgba(255,255,255,0.42); font-size: 11px;"
-                    " background: rgba(255,255,255,0.04); border-radius: 8px;"
-                    " padding: 6px 10px; }"));
+                note->setStyleSheet(noteStyle());
                 m_layout->insertWidget(m_layout->count() - 1, note);
+                m_notes.append(note);
             }
             continue;
         }
@@ -377,10 +421,9 @@ void ChatMessageList::appendNote(const QString &text)
     auto *note = new QLabel(text, m_container);
     note->setWordWrap(true);
     note->setAlignment(Qt::AlignCenter);
-    note->setStyleSheet(QStringLiteral(
-        "QLabel { color: rgba(255,255,255,0.45); font-size: 11px;"
-        " background: rgba(255,255,255,0.04); border-radius: 8px; padding: 5px 10px; }"));
+    note->setStyleSheet(noteStyle());
     m_layout->insertWidget(m_layout->count() - 1, note);
+    m_notes.append(note);
     QTimer::singleShot(0, this, &ChatMessageList::scrollToBottom);
 }
 
