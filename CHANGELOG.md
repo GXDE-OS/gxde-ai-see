@@ -14,7 +14,8 @@
   - 文件/图片：打开、复制路径、保存图片、占位 OCR/描述
 - 待办窗口：layer-shell、不抢焦点、复选框/删除/新建、持久化
 - 小埃同学对话：DeepSeek/自定义 API 流式输出、多会话、设置、三块拖放区、
-  编辑/重试/分支、上下文条数与自动压缩、关于
+  编辑/重试/分支、上下文条数与自动压缩、Markdown、关于
+- MCP：stdio JSON-RPC，自动 initialize / tools-list，工具以 function calling 暴露给模型并在对话中执行
 - 合成器 portal（flake-wm / gxde-wlcom）：org.gxde.Portal、缩略图坐标映射、
   原生 drop 到目标窗口
 - gxde-k9 开机自启与保活开关；不支持环境只提示一次并保持待命

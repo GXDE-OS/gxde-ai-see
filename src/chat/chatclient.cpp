@@ -15,6 +15,7 @@
 namespace {
 
 bool prepareRequest(const QVector<ChatMessage> &messages, bool stream,
+                    const QJsonArray &tools, const QJsonArray &extraMessages,
                     QNetworkRequest *request, QByteArray *body, QString *error)
 {
     const QString apiKey =
@@ -49,8 +50,16 @@ bool prepareRequest(const QVector<ChatMessage> &messages, bool stream,
                    Config::instance()
                        ->get(QStringLiteral("chat/model"), QStringLiteral("deepseek-chat"))
                        .toString());
-    payload.insert(QStringLiteral("messages"), jsonMessages);
+    QJsonArray allMessages = jsonMessages;
+    for (const QJsonValue &extra : extraMessages) {
+        allMessages.append(extra);
+    }
+    payload.insert(QStringLiteral("messages"), allMessages);
     payload.insert(QStringLiteral("stream"), stream);
+    if (!tools.isEmpty()) {
+        payload.insert(QStringLiteral("tools"), tools);
+        payload.insert(QStringLiteral("tool_choice"), QStringLiteral("auto"));
+    }
     payload.insert(QStringLiteral("temperature"), 0.7);
 
     *request = QNetworkRequest{QUrl(baseUrl)};
@@ -86,17 +95,23 @@ ChatClient::ChatClient(QObject *parent)
     m_manager.setRedirectPolicy(QNetworkRequest::NoLessSafeRedirectPolicy);
 }
 
-void ChatClient::send(const QVector<ChatMessage> &messages)
+void ChatClient::setTools(const QJsonArray &tools)
+{
+    m_tools = tools;
+}
+
+void ChatClient::send(const QVector<ChatMessage> &messages, const QJsonArray &extraMessages)
 {
     cancel();
     m_buffer.clear();
     m_fullText.clear();
+    m_toolCalls.clear();
     m_done = false;
 
     QNetworkRequest request;
     QByteArray body;
     QString error;
-    if (!prepareRequest(messages, true, &request, &body, &error)) {
+    if (!prepareRequest(messages, true, m_tools, extraMessages, &request, &body, &error)) {
         Q_EMIT failed(error);
         return;
     }
@@ -117,7 +132,7 @@ void ChatClient::sendOnce(const QVector<ChatMessage> &messages)
     QNetworkRequest request;
     QByteArray body;
     QString error;
-    if (!prepareRequest(messages, false, &request, &body, &error)) {
+    if (!prepareRequest(messages, false, QJsonArray(), QJsonArray(), &request, &body, &error)) {
         Q_EMIT onceFailed(error);
         return;
     }
@@ -224,6 +239,26 @@ void ChatClient::handlePayload(const QByteArray &payload)
         m_fullText += content;
         Q_EMIT delta(content);
     }
+
+    const QJsonArray toolCalls = deltaObject.value(QStringLiteral("tool_calls")).toArray();
+    for (const QJsonValue &value : toolCalls) {
+        const QJsonObject object = value.toObject();
+        const int index = object.value(QStringLiteral("index")).toInt();
+        while (m_toolCalls.size() <= index) {
+            m_toolCalls.append(ToolCall{});
+        }
+        ToolCall &call = m_toolCalls[index];
+        if (object.contains(QStringLiteral("id"))) {
+            call.id = object.value(QStringLiteral("id")).toString();
+        }
+        const QJsonObject function = object.value(QStringLiteral("function")).toObject();
+        if (function.contains(QStringLiteral("name"))) {
+            call.name += function.value(QStringLiteral("name")).toString();
+        }
+        if (function.contains(QStringLiteral("arguments"))) {
+            call.arguments += function.value(QStringLiteral("arguments")).toString();
+        }
+    }
 }
 
 void ChatClient::handleFinished()
@@ -252,6 +287,14 @@ void ChatClient::handleFinished()
             handlePayload(line.mid(5).trimmed());
         }
         m_buffer.clear();
+    }
+
+    if (!m_toolCalls.isEmpty()) {
+        const QVector<ToolCall> calls = m_toolCalls;
+        m_toolCalls.clear();
+        Q_EMIT toolCallsReady(calls);
+        reply->deleteLater();
+        return;
     }
 
     Q_EMIT finished(m_fullText);

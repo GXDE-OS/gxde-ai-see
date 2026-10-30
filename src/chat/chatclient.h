@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <QJsonArray>
 #include <QNetworkAccessManager>
 #include <QObject>
 #include <QString>
@@ -12,6 +13,13 @@ struct ChatMessage
 {
     QString role; // system / user / assistant
     QString content;
+};
+
+struct ToolCall
+{
+    QString id;
+    QString name;
+    QString arguments;
 };
 
 /**
@@ -28,7 +36,8 @@ public:
     explicit ChatClient(QObject *parent = nullptr);
 
     bool busy() const { return m_reply != nullptr; }
-    void send(const QVector<ChatMessage> &messages);
+    void setTools(const QJsonArray &tools);
+    void send(const QVector<ChatMessage> &messages, const QJsonArray &extraMessages = QJsonArray());
     void sendOnce(const QVector<ChatMessage> &messages);
     void cancel();
 
@@ -38,6 +47,7 @@ signals:
     void failed(const QString &error);
     void onceFinished(const QString &text);
     void onceFailed(const QString &error);
+    void toolCallsReady(const QVector<ToolCall> &calls);
 
 private:
     void handleReadyRead();
@@ -48,6 +58,8 @@ private:
     class QNetworkReply *m_reply = nullptr;
     class QNetworkReply *m_onceReply = nullptr;
     QByteArray m_buffer;
+    QJsonArray m_tools;
+    QVector<ToolCall> m_toolCalls;
     QString m_fullText;
     bool m_done = false;
 };

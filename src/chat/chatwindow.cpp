@@ -4,6 +4,7 @@
 #include "chatwindow.h"
 
 #include "config.h"
+#include "mcpclient.h"
 
 #include <QCheckBox>
 #include <QClipboard>
@@ -213,6 +214,7 @@ ChatWindow::ChatWindow(QWidget *parent)
     m_storePath = Config::instance()->dataDir() + QStringLiteral("/chat.json");
 
     setupUi();
+    McpManager::instance()->reload();
     load();
     m_current = m_conversations.isEmpty() ? -1 : qBound(0, m_current, m_conversations.size() - 1);
     updateSidebar();
@@ -232,11 +234,37 @@ ChatWindow::ChatWindow(QWidget *parent)
     });
     connect(m_client, &ChatClient::finished, this, [this](const QString &) {
         m_streamingIndex = -1;
+        m_toolScaffold = QJsonArray();
+        m_toolRounds = 0;
         if (m_current >= 0) {
             m_conversations[m_current].updatedAt = QDateTime::currentMSecsSinceEpoch();
         }
         save();
         renderConversation();
+    });
+    connect(m_client, &ChatClient::toolCallsReady, this, [this](const QVector<ToolCall> &calls) {
+        if (m_current < 0 || m_streamingIndex < 0) {
+            return;
+        }
+        if (m_toolRounds >= 5) {
+            appendError(tr("工具调用次数过多，已停止"));
+            m_streamingIndex = -1;
+            return;
+        }
+        ++m_toolRounds;
+
+        QStringList names;
+        for (const ToolCall &call : calls) {
+            names.append(call.name);
+        }
+        ChatMessage &message =
+            m_conversations[m_current].messages[m_streamingIndex];
+        message.content += QStringLiteral("%1🔧 调用工具：%2")
+                               .arg(message.content.isEmpty() ? QString() : QStringLiteral("\n\n"),
+                                    names.join(QStringLiteral(", ")));
+        renderConversation();
+
+        runToolCalls(calls, 0, QJsonArray());
     });
     connect(m_client, &ChatClient::onceFinished, this, [this](const QString &summary) {
         m_compressing = false;
@@ -341,6 +369,13 @@ void ChatWindow::setupUi()
     auto *menu = new QMenu(menuButton);
     menu->addAction(tr("压缩上下文"), this, [this]() { beginCompression(false); });
     menu->addAction(tr("重试上一条"), this, &ChatWindow::retryLast);
+    menu->addAction(tr("重新加载 MCP"), this, [this]() {
+        McpManager::instance()->reload();
+        const QStringList status = McpManager::instance()->statusLines();
+        m_status->setText(status.isEmpty() ? tr("没有配置 MCP 服务器")
+                                           : status.join(QStringLiteral(" · ")));
+        m_status->show();
+    });
     menu->addSeparator();
     menu->addAction(tr("关于"), this, &ChatWindow::showAbout);
     menuButton->setMenu(menu);
@@ -620,6 +655,8 @@ void ChatWindow::sendMessage()
     conversation.messages.append(ChatMessage{ QStringLiteral("user"), text });
     conversation.updatedAt = QDateTime::currentMSecsSinceEpoch();
     m_skipCompress = false;
+    m_toolScaffold = QJsonArray();
+    m_toolRounds = 0;
 
     m_input->clear();
     m_status->hide();
@@ -669,7 +706,72 @@ void ChatWindow::sendPayload()
         payload.append(conversation.messages.at(i));
     }
 
-    m_client->send(payload);
+    if (m_toolRounds >= 5) {
+        m_client->setTools(QJsonArray());
+    } else {
+        m_client->setTools(McpManager::instance()->toolDefinitions());
+    }
+    m_client->send(payload, m_toolScaffold);
+}
+
+void ChatWindow::runToolCalls(const QVector<ToolCall> &calls, int index,
+                              const QJsonArray &results)
+{
+    if (index >= calls.size()) {
+        QJsonObject assistant;
+        assistant.insert(QStringLiteral("role"), QStringLiteral("assistant"));
+        assistant.insert(QStringLiteral("content"), QJsonValue::Null);
+        QJsonArray toolCalls;
+        for (const ToolCall &call : calls) {
+            QJsonObject function;
+            function.insert(QStringLiteral("name"), call.name);
+            function.insert(QStringLiteral("arguments"), call.arguments);
+            toolCalls.append(QJsonObject{ { QStringLiteral("id"), call.id },
+                                          { QStringLiteral("type"), QStringLiteral("function") },
+                                          { QStringLiteral("function"), function } });
+        }
+        assistant.insert(QStringLiteral("tool_calls"), toolCalls);
+        m_toolScaffold.append(assistant);
+        for (const QJsonValue &result : results) {
+            m_toolScaffold.append(result);
+        }
+        sendPayload();
+        return;
+    }
+
+    const ToolCall call = calls.at(index);
+    QJsonObject arguments;
+    const QJsonDocument document = QJsonDocument::fromJson(call.arguments.toUtf8());
+    if (document.isObject()) {
+        arguments = document.object();
+    }
+
+    McpManager::instance()->callTool(
+        call.name, arguments,
+        [this, calls, index, results](const QJsonObject &response) {
+            QString text;
+            const QJsonArray content = response.value(QStringLiteral("content")).toArray();
+            for (const QJsonValue &value : content) {
+                const QJsonObject object = value.toObject();
+                if (object.value(QStringLiteral("type")).toString() ==
+                    QStringLiteral("text")) {
+                    text += object.value(QStringLiteral("text")).toString();
+                    text += QLatin1Char('\n');
+                }
+            }
+            if (text.isEmpty()) {
+                text = response.contains(QStringLiteral("error"))
+                           ? response.value(QStringLiteral("error")).toString()
+                           : QString::fromUtf8(
+                                 QJsonDocument(response).toJson(QJsonDocument::Compact));
+            }
+
+            QJsonArray next = results;
+            next.append(QJsonObject{ { QStringLiteral("role"), QStringLiteral("tool") },
+                                     { QStringLiteral("tool_call_id"), calls.at(index).id },
+                                     { QStringLiteral("content"), text } });
+            runToolCalls(calls, index + 1, next);
+        });
 }
 
 bool ChatWindow::needsCompression() const
@@ -900,6 +1002,16 @@ void ChatWindow::openSettings()
         Config::instance()->getBool(QStringLiteral("chat/autoCompress"), true));
     form->addRow(QString(), autoCompressBox);
 
+    auto *mcpEdit = new QPlainTextEdit(&dialog);
+    mcpEdit->setFixedHeight(90);
+    mcpEdit->setPlaceholderText(
+        QStringLiteral("[{\"name\":\"fs\",\"command\":\"npx\","
+                       "\"args\":[\"-y\",\"@modelcontextprotocol/server-filesystem\","
+                       "\"/tmp\"]}]"));
+    mcpEdit->setPlainText(
+        Config::instance()->get(QStringLiteral("chat/mcpServers")).toString());
+    form->addRow(tr("MCP 服务器（JSON）"), mcpEdit);
+
     auto *systemEdit = new QPlainTextEdit(&dialog);
     systemEdit->setFixedHeight(80);
     systemEdit->setPlainText(Config::instance()
@@ -933,6 +1045,16 @@ void ChatWindow::openSettings()
         Config::instance()->set(QStringLiteral("chat/contextLength"), contextSpin->value());
         Config::instance()->set(QStringLiteral("chat/autoCompress"),
                                 autoCompressBox->isChecked());
+        const QJsonDocument mcpDocument =
+            QJsonDocument::fromJson(mcpEdit->toPlainText().toUtf8());
+        if (mcpDocument.isArray() || mcpEdit->toPlainText().trimmed().isEmpty()) {
+            Config::instance()->set(QStringLiteral("chat/mcpServers"),
+                                    mcpEdit->toPlainText().trimmed());
+            McpManager::instance()->reload();
+        } else {
+            m_status->setText(tr("MCP 配置不是合法的 JSON 数组，已忽略"));
+            m_status->show();
+        }
         Config::instance()->sync();
         renderConversation();
     }

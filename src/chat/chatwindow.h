@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <QJsonArray>
 #include <QVector>
 #include <QWidget>
 
@@ -58,6 +59,7 @@ private:
     void updateSidebar();
     void sendMessage();
     void requestCompletion();
+    void runToolCalls(const QVector<ToolCall> &calls, int index, const QJsonArray &results);
     void sendPayload();
     void editMessage(int index);
     void retryLast();
@@ -83,5 +85,7 @@ private:
     bool m_compressing = false;
     bool m_afterCompressSend = false;
     bool m_skipCompress = false;
+    QJsonArray m_toolScaffold;
+    int m_toolRounds = 0;
     QString m_storePath;
 };

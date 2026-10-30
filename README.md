@@ -47,7 +47,7 @@
 - 多对话管理、流式输出、Markdown、代码块。
 - 编辑消息、重试、从任意消息 fork。
 - 上下文长度设置 + 手动/自动压缩。
-- MCP（stdio）工具接入。
+- MCP（stdio）工具接入：设置里填服务器 JSON，工具自动以 function calling 暴露给模型。
 - 独立桌面入口；后续作为 GXDE 各项能力的 AI 入口与 skill 平台。
 
 ---
