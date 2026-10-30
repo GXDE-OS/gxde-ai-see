@@ -28,10 +28,14 @@ public:
     void refreshLayout();
 
 protected:
+    void contextMenuEvent(QContextMenuEvent *event) override;
     void showEvent(QShowEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
+
+signals:
+    void recreateRequested();
 
 private:
     void setupWindow();
@@ -45,6 +49,7 @@ private:
     QLabel *m_countLabel = nullptr;
     int m_rightMargin = 16;
     int m_topMargin = 72;
+    bool m_keepAbove = true;
     bool m_dragging = false;
     QPoint m_dragStart;
     int m_dragStartRight = 0;

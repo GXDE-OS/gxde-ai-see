@@ -7,6 +7,9 @@
 
 #include "config.h"
 
+#include <QContextMenuEvent>
+#include <QMenu>
+
 #include <QApplication>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -159,6 +162,7 @@ TodoWindow::TodoWindow(TodoModel *model, QWidget *parent)
 
     m_rightMargin = Config::instance()->getInt(QStringLiteral("todo/rightMargin"), 16);
     m_topMargin = Config::instance()->getInt(QStringLiteral("todo/topMargin"), 72);
+    m_keepAbove = Config::instance()->getBool(QStringLiteral("todo/keepAbove"), true);
 
     setupWindow();
     setupUi();
@@ -172,6 +176,11 @@ TodoWindow::TodoWindow(TodoModel *model, QWidget *parent)
 
 void TodoWindow::setupWindow()
 {
+    if (!m_keepAbove) {
+        /* plain toplevel: shows in the taskbar and can be covered/moved */
+        setWindowFlag(Qt::Tool, false);
+        return;
+    }
 #ifdef GXDE_HAVE_LAYERSHELLQT
     if (QGuiApplication::platformName().startsWith(QLatin1String("wayland"))) {
         createWinId();
@@ -308,6 +317,9 @@ void TodoWindow::addEntry()
 
 void TodoWindow::applyMargins()
 {
+    if (!m_keepAbove) {
+        return;
+    }
 #ifdef GXDE_HAVE_LAYERSHELLQT
     if (QGuiApplication::platformName().startsWith(QLatin1String("wayland"))) {
         if (auto *layer = LayerShellQt::Window::get(windowHandle())) {
@@ -322,6 +334,26 @@ void TodoWindow::applyMargins()
     }
 }
 
+void TodoWindow::contextMenuEvent(QContextMenuEvent *event)
+{
+    QMenu menu(this);
+    QAction *pin = menu.addAction(tr("置顶"));
+    pin->setCheckable(true);
+    pin->setChecked(m_keepAbove);
+    QAction *hideAction = menu.addAction(tr("隐藏"));
+    QAction *chosen = menu.exec(event->globalPos());
+    if (chosen == hideAction) {
+        hide();
+        return;
+    }
+    if (chosen == pin) {
+        const bool keep = pin->isChecked();
+        Config::instance()->set(QStringLiteral("todo/keepAbove"), keep);
+        Config::instance()->sync();
+        Q_EMIT recreateRequested();
+    }
+}
+
 void TodoWindow::saveMargins()
 {
     Config::instance()->set(QStringLiteral("todo/rightMargin"), m_rightMargin);
@@ -332,6 +364,13 @@ void TodoWindow::saveMargins()
 void TodoWindow::mousePressEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton && event->position().y() < 48) {
+        if (!m_keepAbove) {
+            if (windowHandle()) {
+                windowHandle()->startSystemMove();
+            }
+            event->accept();
+            return;
+        }
         m_dragging = true;
         m_dragStart = event->position().toPoint();
         m_dragStartRight = m_rightMargin;

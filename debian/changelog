@@ -1,3 +1,15 @@
+gxde-ai-see (1.0.0~beta2) unstable; urgency=medium
+
+  * 会话列表支持拖拽排序、多选、批量删除
+  * 上下文压缩支持 128k / 1024k token 上限
+  * 待办窗口可取消置顶（普通窗口）
+  * 全屏时隐藏：合成器 FullscreenChanged 信号联动
+  * 非中文环境回退英文翻译；补齐全部英文翻译
+  * 全新应用图标（清理背景、圆角渐变底）
+  * DTK 关于窗口；分词/朗读对话框；消息下方常驻操作
+
+ -- shenmo <shenmo@spark-app.store>  Fri, 30 Oct 2026 23:30:00 +0800
+
 gxde-ai-see (1.0.0~beta) unstable; urgency=medium
 
   * 首个 beta：传送门原生 drop、暂存区、内容工厂、待办、小埃同学对话

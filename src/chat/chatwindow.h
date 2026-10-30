@@ -62,6 +62,9 @@ private:
     void renderConversation();
     void updateHeader();
     void updateSidebar();
+    void reorderConversations();
+    void deleteConversations(const QList<int> &rows);
+    void renameConversation(int row);
     void sendMessage();
     void requestCompletion();
     void runToolCalls(const QVector<ToolCall> &calls, int index, const QJsonArray &results);

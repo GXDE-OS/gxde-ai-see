@@ -53,6 +53,9 @@ PortalClient::PortalClient(QObject *parent)
     bus.connect(QString::fromLatin1(kService), QString::fromLatin1(kPath),
                 QString::fromLatin1(kInterface), QStringLiteral("PortalClosed"), this,
                 SLOT(onPortalClosed()));
+    bus.connect(QString::fromLatin1(kService), QString::fromLatin1(kPath),
+                QString::fromLatin1(kInterface), QStringLiteral("FullscreenChanged"), this,
+                SLOT(onFullscreenChanged(bool)));
 }
 
 bool PortalClient::beginPortal(const QRect &panelRect)
@@ -94,6 +97,11 @@ bool PortalClient::mimeInteresting(const QString &mimeTypes)
 void PortalClient::onDragStarted(const QString &mimeTypes)
 {
     Q_EMIT dragStarted(mimeTypes);
+}
+
+void PortalClient::onFullscreenChanged(bool fullscreen)
+{
+    Q_EMIT fullscreenChanged(fullscreen);
 }
 
 void PortalClient::onPortalClosed()

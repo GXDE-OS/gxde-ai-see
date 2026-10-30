@@ -19,7 +19,7 @@ int main(int argc, char *argv[])
     app.setOrganizationName(QStringLiteral("GXDE"));
     app.setApplicationName(QStringLiteral("gxde-ai-see"));
     app.setApplicationDisplayName(QStringLiteral("GXDE 小埃同学"));
-    app.setApplicationVersion(QStringLiteral("1.0.0~beta"));
+    app.setApplicationVersion(QStringLiteral("1.0.0~beta2"));
     QIcon appIcon = QIcon::fromTheme(QStringLiteral("gxde-ai-see"));
     if (appIcon.isNull()) {
         appIcon = QIcon(QStringLiteral("/usr/share/icons/hicolor/256x256/apps/gxde-ai-see.png"));
@@ -35,17 +35,25 @@ int main(int argc, char *argv[])
         QStringLiteral("/usr/share/gxde-ai-see/translations"),
         QStringLiteral("/usr/local/share/gxde-ai-see/translations"),
     };
-    bool translated = false;
+    QStringList candidates{ locale, locale.section(QLatin1Char('_'), 0, 0) };
+    /* ensure unsupported locales fall back to English, never to the Chinese
+     * source strings */
+    if (!locale.startsWith(QLatin1String("zh"))) {
+        candidates.append(QStringLiteral("en"));
+    }
     for (const QString &dir : translationDirs) {
-        if (translator->load(QStringLiteral("gxde-ai-see_") + locale, dir) ||
-            translator->load(QStringLiteral("gxde-ai-see_") + locale.section(QLatin1Char('_'), 0, 0),
-                             dir)) {
-            app.installTranslator(translator);
-            translated = true;
+        bool loaded = false;
+        for (const QString &candidate : candidates) {
+            if (translator->load(QStringLiteral("gxde-ai-see_") + candidate, dir)) {
+                app.installTranslator(translator);
+                loaded = true;
+                break;
+            }
+        }
+        if (loaded) {
             break;
         }
     }
-    Q_UNUSED(translated)
 
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("GXDE 小埃同学"));

@@ -117,6 +117,20 @@ bool App::init(bool daemon, bool forceShow, bool showTodo, bool showChat)
         }
     });
 
+    connect(portal, &PortalClient::fullscreenChanged, this, [this](bool fullscreen) {
+        if (!Config::instance()->getBool(QStringLiteral("panel/hideOnFullscreen"), false)) {
+            return;
+        }
+        if (fullscreen) {
+            if (m_panel && m_panel->isVisible()) {
+                m_panel->dismiss();
+            }
+        } else if (m_panelPinned || !m_model->isEmpty()) {
+            ensurePanel();
+            m_panel->popup();
+        }
+    });
+
     connect(m_model, &StagingModel::countChanged, this, [this]() {
         if (!m_model->isEmpty() && m_panel) {
             m_panel->popup();
@@ -194,6 +208,14 @@ void App::showTodoWindow()
 {
     if (!m_todoWindow) {
         m_todoWindow = new TodoWindow(TodoModel::instance());
+        connect(m_todoWindow, &TodoWindow::recreateRequested, this, [this]() {
+            if (m_todoWindow) {
+                m_todoWindow->close();
+                m_todoWindow->deleteLater();
+                m_todoWindow = nullptr;
+            }
+            showTodoWindow();
+        });
     }
     m_todoWindow->popup();
 }

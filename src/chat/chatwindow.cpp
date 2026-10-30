@@ -75,11 +75,20 @@ public:
         : QListWidget(parent)
     {
         setAcceptDrops(true);
+        setDragEnabled(true);
+        setDragDropMode(QAbstractItemView::DragDrop);
+        setDefaultDropAction(Qt::MoveAction);
+        setDropIndicatorShown(true);
+        setDragDropOverwriteMode(false);
+        setSelectionMode(QAbstractItemView::ExtendedSelection);
     }
 
 signals:
     void droppedAt(int index, const QMimeData *mime);
     void left();
+    void reordered();
+    void deleteRequested(const QList<int> &rows);
+    void renameRequested(int row);
 
 protected:
     void leaveEvent(QEvent *event) override
@@ -88,10 +97,9 @@ protected:
         QListWidget::leaveEvent(event);
     }
 
-protected:
     void dragEnterEvent(QDragEnterEvent *event) override
     {
-        if (mimeOk(event->mimeData())) {
+        if (event->source() == this || mimeOk(event->mimeData())) {
             event->acceptProposedAction();
         } else {
             event->ignore();
@@ -100,13 +108,27 @@ protected:
 
     void dragMoveEvent(QDragMoveEvent *event) override
     {
-        if (mimeOk(event->mimeData())) {
+        if (event->source() == this || mimeOk(event->mimeData())) {
             event->acceptProposedAction();
         }
     }
 
     void dropEvent(QDropEvent *event) override
     {
+        if (event->source() == this) {
+            const QModelIndex dropIndex = indexAt(event->position().toPoint());
+            const int to = dropIndex.isValid() ? dropIndex.row() : count();
+            const int from = currentRow();
+            if (from >= 0 && to >= 0 && to != from && to != from + 1) {
+                QListWidgetItem *item = takeItem(from);
+                const int target = to > from ? to - 1 : to;
+                insertItem(target, item);
+                setCurrentRow(target);
+                Q_EMIT reordered();
+            }
+            event->acceptProposedAction();
+            return;
+        }
         if (!mimeOk(event->mimeData())) {
             event->ignore();
             return;
@@ -114,6 +136,37 @@ protected:
         const QModelIndex index = indexAt(event->position().toPoint());
         Q_EMIT droppedAt(index.isValid() ? index.row() : -1, event->mimeData());
         event->acceptProposedAction();
+    }
+
+    void contextMenuEvent(QContextMenuEvent *event) override
+    {
+        const QModelIndex index = indexAt(event->pos());
+        QMenu menu(this);
+        QAction *rename = nullptr;
+        if (index.isValid()) {
+            rename = menu.addAction(tr("重命名对话"));
+        }
+        QAction *remove = menu.addAction(tr("删除选中"));
+        QAction *chosen = menu.exec(event->globalPos());
+        if (!chosen) {
+            return;
+        }
+        if (chosen == rename) {
+            Q_EMIT renameRequested(index.row());
+            return;
+        }
+        if (chosen == remove) {
+            QList<int> rows;
+            for (const QModelIndex &selected : selectionModel()->selectedRows()) {
+                rows.append(selected.row());
+            }
+            if (rows.isEmpty() && index.isValid()) {
+                rows.append(index.row());
+            }
+            if (!rows.isEmpty()) {
+                Q_EMIT deleteRequested(rows);
+            }
+        }
     }
 };
 
@@ -546,6 +599,12 @@ void ChatWindow::setupUi()
     connect(m_sidebar, &QListWidget::currentRowChanged, this, &ChatWindow::selectConversation);
     connect(static_cast<ChatSidebar *>(m_sidebar), &ChatSidebar::droppedAt, this,
             &ChatWindow::handleDropOnConversation);
+    connect(static_cast<ChatSidebar *>(m_sidebar), &ChatSidebar::reordered, this,
+            &ChatWindow::reorderConversations);
+    connect(static_cast<ChatSidebar *>(m_sidebar), &ChatSidebar::deleteRequested, this,
+            &ChatWindow::deleteConversations);
+    connect(static_cast<ChatSidebar *>(m_sidebar), &ChatSidebar::renameRequested, this,
+            &ChatWindow::renameConversation);
     connect(m_messages, &ChatMessageList::dropped, this, &ChatWindow::handleDroppedMime);
     connect(m_messages, &ChatMessageList::linkActivated, this, &ChatWindow::handleAnchor);
     connect(m_messages, &ChatMessageList::copyRequested, this, [this](int index) {
@@ -681,12 +740,83 @@ void ChatWindow::selectConversation(int index)
     renderConversation();
 }
 
+void ChatWindow::reorderConversations()
+{
+    if (m_conversations.isEmpty()) {
+        return;
+    }
+    QHash<QString, ChatConversation> byId;
+    for (const ChatConversation &conversation : m_conversations) {
+        byId.insert(conversation.id, conversation);
+    }
+    QVector<ChatConversation> ordered;
+    for (int i = 0; i < m_sidebar->count(); ++i) {
+        const QString id = m_sidebar->item(i)->data(Qt::UserRole).toString();
+        auto it = byId.find(id);
+        if (it != byId.end()) {
+            ordered.append(it.value());
+            byId.erase(it);
+        }
+    }
+    for (auto it = byId.begin(); it != byId.end(); ++it) {
+        ordered.append(it.value());
+    }
+    m_conversations = ordered;
+    const int row = m_sidebar->currentRow();
+    if (row >= 0 && row < m_conversations.size()) {
+        m_current = row;
+    }
+    save();
+    updateSidebar();
+}
+
+void ChatWindow::deleteConversations(const QList<int> &rows)
+{
+    if (rows.isEmpty()) {
+        return;
+    }
+    if (m_client->busy()) {
+        m_client->cancel();
+        m_streamingIndex = -1;
+    }
+    QList<int> sorted = rows;
+    std::sort(sorted.begin(), sorted.end(), std::greater<int>());
+    for (int row : sorted) {
+        if (row >= 0 && row < m_conversations.size()) {
+            m_conversations.removeAt(row);
+        }
+    }
+    m_current = m_conversations.isEmpty() ? -1
+                                         : qBound(0, m_current, m_conversations.size() - 1);
+    save();
+    updateSidebar();
+    renderConversation();
+}
+
+void ChatWindow::renameConversation(int row)
+{
+    if (row < 0 || row >= m_conversations.size()) {
+        return;
+    }
+    bool ok = false;
+    const QString title = QInputDialog::getText(nullptr, tr("重命名对话"), tr("名称"),
+                                                QLineEdit::Normal,
+                                                m_conversations.at(row).title, &ok);
+    if (ok && !title.trimmed().isEmpty()) {
+        m_conversations[row].title = title.trimmed();
+        save();
+        updateSidebar();
+        renderConversation();
+    }
+}
+
 void ChatWindow::updateSidebar()
 {
     const QSignalBlocker blocker(m_sidebar);
     m_sidebar->clear();
     for (const ChatConversation &conversation : m_conversations) {
         auto *item = new QListWidgetItem(conversation.title, m_sidebar);
+        item->setData(Qt::UserRole, conversation.id);
         QString preview = tr("新对话");
         for (int i = conversation.messages.size() - 1; i >= 0; --i) {
             const ChatMessage &message = conversation.messages.at(i);
@@ -874,8 +1004,26 @@ bool ChatWindow::needsCompression() const
     if (!Config::instance()->getBool(QStringLiteral("chat/autoCompress"), true)) {
         return false;
     }
+    const QVector<ChatMessage> &messages = m_conversations.at(m_current).messages;
+
     const int keep = Config::instance()->getInt(QStringLiteral("chat/contextLength"), 40);
-    return m_conversations.at(m_current).messages.size() > keep + 4;
+    if (messages.size() > keep + 4) {
+        return true;
+    }
+
+    /* also honour a token budget (128k / 1024k); a rough estimate is enough */
+    const qint64 tokenLimit =
+        Config::instance()->getInt(QStringLiteral("chat/contextTokens"), 128000);
+    if (tokenLimit <= 0) {
+        return false;
+    }
+    qint64 tokens = 0;
+    for (const ChatMessage &message : messages) {
+        for (const QChar &ch : message.content) {
+            tokens += ch.unicode() < 128 ? 1 : 2;
+        }
+    }
+    return tokens / 4 > tokenLimit;
 }
 
 void ChatWindow::beginCompression(bool thenSend)
@@ -1153,6 +1301,17 @@ void ChatWindow::openSettings()
         Config::instance()->getInt(QStringLiteral("chat/contextLength"), 40));
     form->addRow(tr("上下文条数"), contextSpin);
 
+    auto *tokenBox = new QComboBox(&dialog);
+    tokenBox->addItem(tr("128k"), 128000);
+    tokenBox->addItem(tr("1024k"), 1024000);
+    const int storedTokens =
+        Config::instance()->getInt(QStringLiteral("chat/contextTokens"), 128000);
+    const int tokenIndex = tokenBox->findData(storedTokens);
+    if (tokenIndex >= 0) {
+        tokenBox->setCurrentIndex(tokenIndex);
+    }
+    form->addRow(tr("上下文长度"), tokenBox);
+
     auto *autoCompressBox = new QCheckBox(tr("超出后自动压缩旧消息"), &dialog);
     autoCompressBox->setChecked(
         Config::instance()->getBool(QStringLiteral("chat/autoCompress"), true));
@@ -1201,6 +1360,8 @@ void ChatWindow::openSettings()
         Config::instance()->set(QStringLiteral("chat/contextLength"), contextSpin->value());
         Config::instance()->set(QStringLiteral("chat/autoCompress"),
                                 autoCompressBox->isChecked());
+        Config::instance()->set(QStringLiteral("chat/contextTokens"),
+                                tokenBox->currentData().toInt());
         const QJsonDocument mcpDocument =
             QJsonDocument::fromJson(mcpEdit->toPlainText().toUtf8());
         if (mcpDocument.isArray() || mcpEdit->toPlainText().trimmed().isEmpty()) {
