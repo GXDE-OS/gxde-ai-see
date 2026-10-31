@@ -6,6 +6,7 @@
 #include "chat/chatwindow.h"
 #include "config.h"
 #include "portal/portalclient.h"
+#include "portal/dragwatcher.h"
 #include "portal/portalsession.h"
 #include "staging/stagingmodel.h"
 #include "todo/todomodel.h"
@@ -91,38 +92,16 @@ bool App::init(bool daemon, bool forceShow, bool showTodo, bool showChat)
 
     PortalClient *portal = PortalClient::instance();
     connect(portal, &PortalClient::dragStarted, this, [this](const QString &mimeTypes) {
-        if (!PortalClient::mimeInteresting(mimeTypes)) {
-            return;
-        }
-        m_dragging = true;
-        if (m_panel) {
-            m_panel->setDragging(true);
-        }
-        if (!m_model->isEmpty()) {
-            if (m_panel && m_panel->isVisible()) {
-                m_panel->suppressPortalIfUnderCursor();
-            }
-            return;
-        }
-        QTimer::singleShot(80, this, [this]() {
-            if (m_dragging && m_model->isEmpty()) {
-                showPanel();
-                if (m_panel) {
-                    m_panel->suppressPortalIfUnderCursor();
-                }
-            }
-        });
-    });
-    connect(portal, &PortalClient::dragEnded, this, [this]() {
-        m_dragging = false;
-        if (m_panel) {
-            m_panel->stopPortalSuppression();
-            m_panel->setDragging(false);
-        }
-        if (m_model->isEmpty() && !m_panelPinned && m_panel && m_panel->isVisible()) {
-            m_panel->dismiss();
+        if (PortalClient::mimeInteresting(mimeTypes)) {
+            onDragStarted();
         }
     });
+
+    connect(portal, &PortalClient::dragEnded, this, &App::onDragEnded);
+    if (DragWatcher *watcher = DragWatcher::instance()) {
+        connect(watcher, &DragWatcher::dragStarted, this, &App::onDragStarted);
+        connect(watcher, &DragWatcher::dragEnded, this, &App::onDragEnded);
+    }
 
     connect(portal, &PortalClient::fullscreenChanged, this, [this](bool fullscreen) {
         if (!Config::instance()->getBool(QStringLiteral("panel/hideOnFullscreen"), false)) {
@@ -155,12 +134,61 @@ bool App::init(bool daemon, bool forceShow, bool showTodo, bool showChat)
     if (showTodo) {
         showTodoWindow();
     }
-    if (!daemon || forceShow || !m_model->isEmpty()) {
+    
+    const bool shownByHand = forceShow || (!daemon && !showChat && !showTodo);
+    if (shownByHand) {
+        m_panelPinned = true;
         showPanel();
-        m_panelPinned = forceShow;
+    } else if (!m_model->isEmpty()) {
+        showPanel();
     }
 
     return true;
+}
+
+void App::onDragStarted()
+{
+    if (m_dragging) {
+        return;
+    }
+
+    m_dragging = true;
+    if (m_panel) {
+        m_panel->setDragging(true);
+    }
+
+    if (!m_model->isEmpty()) {
+        if (m_panel && m_panel->isVisible()) {
+            m_panel->suppressPortalIfUnderCursor();
+        }
+        return;
+    }
+
+    QTimer::singleShot(80, this, [this]() {
+        if (m_dragging && m_model->isEmpty()) {
+            showPanel();
+            if (m_panel) {
+                m_panel->suppressPortalIfUnderCursor();
+            }
+        }
+    });
+}
+
+void App::onDragEnded()
+{
+    if (!m_dragging) {
+        return;
+    }
+
+    m_dragging = false;
+    if (m_panel) {
+        m_panel->stopPortalSuppression();
+        m_panel->setDragging(false);
+    }
+
+    if (m_model->isEmpty() && !m_panelPinned && m_panel && m_panel->isVisible()) {
+        m_panel->dismiss();
+    }
 }
 
 void App::ensurePanel()

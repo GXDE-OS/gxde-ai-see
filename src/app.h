@@ -24,7 +24,7 @@ public:
 
     /**
      * @param daemon    run in the background, only show the panel when needed
-     * @param forceShow always show the panel on startup
+     * @param forceShow show the panel on startup and keep it until hidden
      * @return false when another instance is already running
      */
     bool init(bool daemon, bool forceShow, bool showTodo = false, bool showChat = false);
@@ -33,6 +33,8 @@ private:
     void ensurePanel();
     void showPanel();
     void togglePanel();
+    void onDragStarted();
+    void onDragEnded();
     void showTodoWindow();
     void showChatWindow();
 

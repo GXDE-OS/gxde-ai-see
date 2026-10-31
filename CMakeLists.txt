@@ -17,6 +17,7 @@ find_package(Qt6 OPTIONAL_COMPONENTS WaylandClient WaylandScannerTools)
 find_package(GxdeBerneseQt6 REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(XCB QUIET xcb)
+pkg_check_modules(XCB_XFIXES QUIET xcb-xfixes)
 pkg_check_modules(DTK2WIDGET REQUIRED dtk2widget)
 pkg_check_modules(DTK6GUI REQUIRED dtk6gui)
 pkg_check_modules(ICU REQUIRED icu-i18n icu-uc)
@@ -48,6 +49,7 @@ set(GXDE_AI_SEE_SOURCES
     src/chat/chatview.cpp
     src/ui/mimedroparea.cpp
     src/ui/pointertravel.cpp
+    src/portal/dragwatcher.cpp
     src/ui/portalpainters.cpp
     src/ui/portalpanel.cpp
     src/ui/aboutdialog.cpp
@@ -82,13 +84,20 @@ if (XCB_FOUND)
     target_include_directories(gxde-ai-see PRIVATE ${XCB_INCLUDE_DIRS})
     target_link_libraries(gxde-ai-see PRIVATE ${XCB_LIBRARIES})
     target_compile_definitions(gxde-ai-see PRIVATE GXDE_HAVE_XCB=1)
+
+    if (XCB_XFIXES_FOUND)
+        target_include_directories(gxde-ai-see PRIVATE ${XCB_XFIXES_INCLUDE_DIRS})
+        target_link_libraries(gxde-ai-see PRIVATE ${XCB_XFIXES_LIBRARIES})
+        target_compile_definitions(gxde-ai-see PRIVATE GXDE_HAVE_XCB_XFIXES=1)
+    endif ()
 endif ()
 if (TARGET Qt6::WaylandClient AND COMMAND qt6_generate_wayland_protocol_client_sources)
     target_sources(gxde-ai-see PRIVATE src/portal/wlrtaskwindows.cpp)
     qt6_generate_wayland_protocol_client_sources(gxde-ai-see
         PRIVATE_CODE
         FILES ${CMAKE_CURRENT_SOURCE_DIR}/src/portal/protocols/wlr-foreign-toplevel-management-unstable-v1.xml
-              ${CMAKE_CURRENT_SOURCE_DIR}/src/portal/protocols/relative-pointer-unstable-v1.xml)
+              ${CMAKE_CURRENT_SOURCE_DIR}/src/portal/protocols/relative-pointer-unstable-v1.xml
+              ${CMAKE_CURRENT_SOURCE_DIR}/src/portal/protocols/treeland-dde-shell-v1.xml)
     target_link_libraries(gxde-ai-see PRIVATE Qt6::WaylandClient)
     target_compile_definitions(gxde-ai-see PRIVATE GXDE_HAVE_WAYLAND_CLIENT=1)
 endif ()
