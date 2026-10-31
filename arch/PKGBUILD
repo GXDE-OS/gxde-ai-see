@@ -1,0 +1,42 @@
+# Maintainer: CharOfString <root@charofstring.cc>
+
+pkgname=gxde-ai-see-git
+pkgver=1.0.0
+pkgrel=3
+pkgdesc='GXDE desktop AI assistant and drag-and-drop hub'
+arch=('x86_64')
+url='https://gitee.com/CharOfString/gxde-ai-see'
+license=('GPL-3.0-or-later')
+depends=(
+    'dtk2widget-qt6'
+    'dtk6gui'
+    'gcc-libs'
+    'glibc'
+    'icu'
+    'layer-shell-qt'
+    'qt6-base'
+    'qt6-svg'
+)
+makedepends=(
+    'cmake'
+    'ninja'
+    'pkgconf'
+    'qt6-tools'
+)
+optdepends=('gxde-k9: startup and background keep-alive support')
+
+build() {
+    cmake \
+        -S "$startdir/.." \
+        -B "$srcdir/build" \
+        -G Ninja \
+        -DCMAKE_BUILD_TYPE=None \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DCMAKE_INSTALL_LIBDIR=lib \
+        -DCMAKE_SKIP_RPATH=ON
+    cmake --build "$srcdir/build"
+}
+
+package() {
+    DESTDIR="$pkgdir" cmake --install "$srcdir/build"
+}

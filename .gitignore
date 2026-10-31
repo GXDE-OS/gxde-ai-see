@@ -36,3 +36,7 @@ debian/gxde-ai-see/
 
 # translations build output
 *.qm
+
+# Archlinux build
+arch/*
+!arch/PKGBUILD
