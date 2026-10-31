@@ -20,7 +20,8 @@ Build-Depends: debhelper-compat (= 13),
                libdtk6gui-dev,
                libdtk2widget6-dev,
                liblayershellqtinterface-dev,
-               libicu-dev
+               libicu-dev,
+               libgxde-bernese-qt6-dev
 Standards-Version: 4.6.2
 Rules-Requires-Root: no
 Homepage: https://gitee.com/GXDE-OS/gxde-ai-see
