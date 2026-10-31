@@ -6,6 +6,7 @@
 #include "chat/chatwindow.h"
 #include "config.h"
 #include "portal/portalclient.h"
+#include "portal/portalsession.h"
 #include "staging/stagingmodel.h"
 #include "todo/todomodel.h"
 #include "todo/todowindow.h"
@@ -62,24 +63,30 @@ bool App::init(bool daemon, bool forceShow, bool showTodo, bool showChat)
 
     m_model = new StagingModel(this);
 
-    /* gxde-k9 keeps restarting us; when the compositor has no portal support we
+    /* gxde-k9 keeps restarting us; when the desktop has no portal support we
      * warn once and then stay idle instead of exiting (which would make k9
-     * relaunch us every few seconds). */
-    if (daemon && !PortalClient::instance()->available() &&
-        !Config::instance()->getBool(QStringLiteral("warned/unsupportedEnv"), false)) {
-        QDBusMessage notification = QDBusMessage::createMethodCall(
-            QStringLiteral("org.freedesktop.Notifications"),
-            QStringLiteral("/org/freedesktop/Notifications"),
-            QStringLiteral("org.freedesktop.Notifications"), QStringLiteral("Notify"));
-        notification << QStringLiteral("gxde-ai-see") << 0u
-                     << QStringLiteral("gxde-ai-see")
-                     << tr("小埃同学") 
-                     << tr("当前桌面不支持传送门（需要 GXDE Wayland 合成器）。"
-                           "小埃同学会继续在后台待命，暂存区、内容工厂和对话仍然可用。")
-                     << QStringList() << QVariantMap() << 6000;
-        QDBusConnection::sessionBus().send(notification);
-        Config::instance()->set(QStringLiteral("warned/unsupportedEnv"), true);
-        Config::instance()->sync();
+     * relaunch us every few seconds).  The Wayland window list binds
+     * asynchronously, so look a moment later. */
+    if (daemon && !Config::instance()->getBool(QStringLiteral("warned/unsupportedEnv"), false)) {
+        QTimer::singleShot(1500, this, []() {
+            if (PortalClient::instance()->available() || PortalSession::supported()) {
+                return;
+            }
+            QDBusMessage notification = QDBusMessage::createMethodCall(
+                QStringLiteral("org.freedesktop.Notifications"),
+                QStringLiteral("/org/freedesktop/Notifications"),
+                QStringLiteral("org.freedesktop.Notifications"), QStringLiteral("Notify"));
+            notification << QStringLiteral("gxde-ai-see") << 0u
+                         << QStringLiteral("gxde-ai-see")
+                         << tr("小埃同学")
+                         << tr("当前桌面不支持传送门（需要 X11 窗口管理器，或支持 "
+                               "wlr-foreign-toplevel 的 Wayland 合成器）。"
+                               "小埃同学会继续在后台待命，暂存区、内容工厂和对话仍然可用。")
+                         << QStringList() << QVariantMap() << 6000;
+            QDBusConnection::sessionBus().send(notification);
+            Config::instance()->set(QStringLiteral("warned/unsupportedEnv"), true);
+            Config::instance()->sync();
+        });
     }
 
     PortalClient *portal = PortalClient::instance();

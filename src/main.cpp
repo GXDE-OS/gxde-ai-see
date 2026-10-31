@@ -6,6 +6,7 @@
 #include <QCommandLineParser>
 #include <QIcon>
 #include <QLocale>
+#include <QQuickStyle>
 #include <QStandardPaths>
 #include <QTranslator>
 
@@ -26,6 +27,11 @@ int main(int argc, char *argv[])
     }
     app.setWindowIcon(appIcon);
     app.setQuitOnLastWindowClosed(false);
+
+    /* the portal panel is Qt Quick with the GXTK7 look; custom styles are
+     * named by their module URI */
+    QQuickStyle::setStyle(QStringLiteral("QtQuick.Controls.Gxde"));
+    QQuickStyle::setFallbackStyle(QStringLiteral("Basic"));
 
     const QString locale = QLocale::system().name();
     auto *translator = new QTranslator(&app);

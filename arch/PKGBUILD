@@ -12,9 +12,13 @@ depends=(
     'dtk6gui'
     'gcc-libs'
     'glibc'
+    'gxde-bernese-git'
+    'gxtk7'
     'icu'
     'layer-shell-qt'
+    'libxcb'
     'qt6-base'
+    'qt6-declarative'
     'qt6-svg'
 )
 makedepends=(

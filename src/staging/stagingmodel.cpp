@@ -157,6 +157,21 @@ QVariant StagingModel::data(const QModelIndex &index, int role) const
     }
 }
 
+QHash<int, QByteArray> StagingModel::roleNames() const
+{
+    return {
+        { TypeRole, "type" },
+        { IdRole, "itemId" },
+        { NameRole, "name" },
+        { UriRole, "uri" },
+        { TextRole, "text" },
+        { CheckedRole, "checked" },
+        { PinnedRole, "pinned" },
+        { ExistsRole, "exists" },
+        { IconRole, "icon" },
+    };
+}
+
 bool StagingModel::removeRows(int row, int count, const QModelIndex &parent)
 {
     if (parent.isValid() || row < 0 || count <= 0 || row + count > m_items.size()) {

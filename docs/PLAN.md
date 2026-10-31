@@ -78,6 +78,21 @@
                             └─▶ 关闭平铺、恢复窗口状态、激活目标窗口
 ```
 
+没有 `org.gxde.Portal`（X11、treeland 等）时改走窗口网格，不需要合成器配合：
+
+```
+悬停「传送门」约 80ms
+  └─▶ 记下当前展开的窗口与焦点窗口，全部最小化
+       └─▶ 传送门左侧出现窗口网格（图标 + 标题）
+              ├─▶ 拖到某个图标上停留 350ms：恢复其他窗口，激活该窗口，网格收起
+              │      └─▶ 继续拖进该窗口松手：原生 drop
+              └─▶ 离开传送门与网格 180ms 以上 / 在此处松手：按原顺序恢复全部窗口
+```
+
+窗口列表与最小化/激活：X11 用 EWMH（`_NET_CLIENT_LIST_STACKING`、`WM_CHANGE_STATE`、
+`_NET_ACTIVE_WINDOW`），Wayland 用 `zwlr_foreign_toplevel_manager_v1`（treeland 由 waylib 的
+`WForeignToplevel` 提供）。代码见 `src/portal/taskwindows.*` 与 `src/portal/portalsession.*`。
+
 ### 4.2 为什么不用剪贴板 + Ctrl+V
 
 剪贴板只能粘贴到**当前焦点**控件，无法命中「鼠标下的那个输入框」；
