@@ -272,14 +272,21 @@ On first use open Settings at the bottom left and enter your DeepSeek API key.</
 <context>
     <name>ContentFactory</name>
     <message>
-        <location filename="../src/qml/ContentFactory.qml" line="57"/>
-        <source>拖到这里，按类型处理</source>
-        <translation>Drop here to process by type</translation>
-    </message>
-    <message>
-        <location filename="../src/qml/ContentFactory.qml" line="63"/>
+        <location filename="../src/qml/ContentFactory.qml" line="79"/>
         <source>拖到动作上松手</source>
         <translation>Drop onto an action</translation>
+    </message>
+    <message>
+        <location filename="../src/qml/ContentFactory.qml" line="49"/>
+        <source>内容工厂</source>
+        <translation>Content Factory</translation>
+    </message>
+    <message>
+        <location filename="../src/qml/ContentFactory.qml" line="50"/>
+        <source>拖到这里
+按类型处理</source>
+        <translation>Drop here
+to process by type</translation>
     </message>
 </context>
 <context>

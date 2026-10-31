@@ -19,10 +19,13 @@ MimeDropArea {
   onEntered: (mime) => controller.noteDragContent(mime)
   onExited: controller.noteDragFinished()
 
+  /* only the action grid needs a container: the idle state is a dashed block
+   * of its own, so a border behind it would draw twice */
   Rectangle {
     anchors.fill: parent
     radius: 12
-    color: Qt.rgba(1, 1, 1, (factory.controller.hasContent ? 14 : 8) / 255)
+    visible: factory.controller.hasContent
+    color: Qt.rgba(1, 1, 1, 14 / 255)
     border.width: 1
     border.color: Qt.rgba(1, 1, 1, 42 / 255)
   }
@@ -35,10 +38,23 @@ MimeDropArea {
     anchors.bottomMargin: 7
     spacing: 10
 
+    /* Idle: the whole area is one dashed block, like the portal, so the empty
+     * factory still says what it is for.  Dragging something over fills the
+     * controller with content and swaps in the action grid below. */
+    PortalZoneItem {
+      Layout.fillWidth: true
+      Layout.fillHeight: true
+      visible: !factory.controller.hasContent
+      foreground: "white"
+      title: qsTranslate("ContentFactory", "内容工厂")
+      subtitle: qsTranslate("ContentFactory", "拖到这里\n按类型处理")
+    }
+
     ColumnLayout {
       Layout.fillWidth: true
       Layout.fillHeight: true
       spacing: 6
+      visible: factory.controller.hasContent
 
       RowLayout {
         Layout.fillWidth: true
@@ -52,9 +68,7 @@ MimeDropArea {
         }
         Label {
           Layout.fillWidth: true
-          text: factory.controller.hasContent
-                ? factory.controller.contentSummary
-                : qsTranslate("ContentFactory", "拖到这里，按类型处理")
+          text: factory.controller.contentSummary
           elide: Text.ElideRight
           color: Qt.rgba(1, 1, 1, 0.45)
           font.pixelSize: 11
@@ -71,7 +85,6 @@ MimeDropArea {
         columns: 3
         rowSpacing: 6
         columnSpacing: 6
-        visible: factory.controller.hasContent
 
         Repeater {
           model: factory.controller.actions
