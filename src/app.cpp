@@ -6,6 +6,8 @@
 #include "chat/chatwindow.h"
 #include "config.h"
 #include "portal/portalclient.h"
+#include "portal/dragwatcher.h"
+#include "portal/portalsession.h"
 #include "staging/stagingmodel.h"
 #include "todo/todomodel.h"
 #include "todo/todowindow.h"
@@ -62,60 +64,44 @@ bool App::init(bool daemon, bool forceShow, bool showTodo, bool showChat)
 
     m_model = new StagingModel(this);
 
-    /* gxde-k9 keeps restarting us; when the compositor has no portal support we
+    /* gxde-k9 keeps restarting us; when the desktop has no portal support we
      * warn once and then stay idle instead of exiting (which would make k9
-     * relaunch us every few seconds). */
-    if (daemon && !PortalClient::instance()->available() &&
-        !Config::instance()->getBool(QStringLiteral("warned/unsupportedEnv"), false)) {
-        QDBusMessage notification = QDBusMessage::createMethodCall(
-            QStringLiteral("org.freedesktop.Notifications"),
-            QStringLiteral("/org/freedesktop/Notifications"),
-            QStringLiteral("org.freedesktop.Notifications"), QStringLiteral("Notify"));
-        notification << QStringLiteral("gxde-ai-see") << 0u
-                     << QStringLiteral("gxde-ai-see")
-                     << tr("小埃同学") 
-                     << tr("当前桌面不支持传送门（需要 GXDE Wayland 合成器）。"
-                           "小埃同学会继续在后台待命，暂存区、内容工厂和对话仍然可用。")
-                     << QStringList() << QVariantMap() << 6000;
-        QDBusConnection::sessionBus().send(notification);
-        Config::instance()->set(QStringLiteral("warned/unsupportedEnv"), true);
-        Config::instance()->sync();
+     * relaunch us every few seconds).  The Wayland window list binds
+     * asynchronously, so look a moment later. */
+    if (daemon && !Config::instance()->getBool(QStringLiteral("warned/unsupportedEnv"), false)) {
+        QTimer::singleShot(1500, this, []() {
+            if (PortalClient::instance()->available() || PortalSession::supported()) {
+                return;
+            }
+            QDBusMessage notification = QDBusMessage::createMethodCall(
+                QStringLiteral("org.freedesktop.Notifications"),
+                QStringLiteral("/org/freedesktop/Notifications"),
+                QStringLiteral("org.freedesktop.Notifications"), QStringLiteral("Notify"));
+            notification << QStringLiteral("gxde-ai-see") << 0u
+                         << QStringLiteral("gxde-ai-see")
+                         << tr("小埃同学")
+                         << tr("当前桌面不支持传送门（需要 X11 窗口管理器，或支持 "
+                               "wlr-foreign-toplevel 的 Wayland 合成器）。"
+                               "小埃同学会继续在后台待命，暂存区、内容工厂和对话仍然可用。")
+                         << QStringList() << QVariantMap() << 6000;
+            QDBusConnection::sessionBus().send(notification);
+            Config::instance()->set(QStringLiteral("warned/unsupportedEnv"), true);
+            Config::instance()->sync();
+        });
     }
 
     PortalClient *portal = PortalClient::instance();
     connect(portal, &PortalClient::dragStarted, this, [this](const QString &mimeTypes) {
-        if (!PortalClient::mimeInteresting(mimeTypes)) {
-            return;
-        }
-        m_dragging = true;
-        if (m_panel) {
-            m_panel->setDragging(true);
-        }
-        if (!m_model->isEmpty()) {
-            if (m_panel && m_panel->isVisible()) {
-                m_panel->suppressPortalIfUnderCursor();
-            }
-            return;
-        }
-        QTimer::singleShot(80, this, [this]() {
-            if (m_dragging && m_model->isEmpty()) {
-                showPanel();
-                if (m_panel) {
-                    m_panel->suppressPortalIfUnderCursor();
-                }
-            }
-        });
-    });
-    connect(portal, &PortalClient::dragEnded, this, [this]() {
-        m_dragging = false;
-        if (m_panel) {
-            m_panel->stopPortalSuppression();
-            m_panel->setDragging(false);
-        }
-        if (m_model->isEmpty() && !m_panelPinned && m_panel && m_panel->isVisible()) {
-            m_panel->dismiss();
+        if (PortalClient::mimeInteresting(mimeTypes)) {
+            onDragStarted();
         }
     });
+
+    connect(portal, &PortalClient::dragEnded, this, &App::onDragEnded);
+    if (DragWatcher *watcher = DragWatcher::instance()) {
+        connect(watcher, &DragWatcher::dragStarted, this, &App::onDragStarted);
+        connect(watcher, &DragWatcher::dragEnded, this, &App::onDragEnded);
+    }
 
     connect(portal, &PortalClient::fullscreenChanged, this, [this](bool fullscreen) {
         if (!Config::instance()->getBool(QStringLiteral("panel/hideOnFullscreen"), false)) {
@@ -148,12 +134,61 @@ bool App::init(bool daemon, bool forceShow, bool showTodo, bool showChat)
     if (showTodo) {
         showTodoWindow();
     }
-    if (!daemon || forceShow || !m_model->isEmpty()) {
+    
+    const bool shownByHand = forceShow || (!daemon && !showChat && !showTodo);
+    if (shownByHand) {
+        m_panelPinned = true;
         showPanel();
-        m_panelPinned = forceShow;
+    } else if (!m_model->isEmpty()) {
+        showPanel();
     }
 
     return true;
+}
+
+void App::onDragStarted()
+{
+    if (m_dragging) {
+        return;
+    }
+
+    m_dragging = true;
+    if (m_panel) {
+        m_panel->setDragging(true);
+    }
+
+    if (!m_model->isEmpty()) {
+        if (m_panel && m_panel->isVisible()) {
+            m_panel->suppressPortalIfUnderCursor();
+        }
+        return;
+    }
+
+    QTimer::singleShot(80, this, [this]() {
+        if (m_dragging && m_model->isEmpty()) {
+            showPanel();
+            if (m_panel) {
+                m_panel->suppressPortalIfUnderCursor();
+            }
+        }
+    });
+}
+
+void App::onDragEnded()
+{
+    if (!m_dragging) {
+        return;
+    }
+
+    m_dragging = false;
+    if (m_panel) {
+        m_panel->stopPortalSuppression();
+        m_panel->setDragging(false);
+    }
+
+    if (m_model->isEmpty() && !m_panelPinned && m_panel && m_panel->isVisible()) {
+        m_panel->dismiss();
+    }
 }
 
 void App::ensurePanel()

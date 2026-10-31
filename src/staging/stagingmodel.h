@@ -22,6 +22,7 @@ class QMimeData;
 class StagingModel : public QAbstractListModel
 {
     Q_OBJECT
+    Q_PROPERTY(int count READ count NOTIFY countChanged)
 
 public:
     enum Roles {
@@ -43,6 +44,7 @@ public:
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
     bool removeRows(int row, int count, const QModelIndex &parent = QModelIndex()) override;
     Qt::ItemFlags flags(const QModelIndex &index) const override;
+    QHash<int, QByteArray> roleNames() const override;
 
     void addMimeData(const QMimeData *mimeData, int *addedRow = nullptr);
     void addFiles(const QStringList &localPaths, int *addedRow = nullptr);

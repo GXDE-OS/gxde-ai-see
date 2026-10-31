@@ -9,6 +9,13 @@ Build-Depends: debhelper-compat (= 13),
                qt6-base-dev,
                qt6-base-dev-tools,
                qt6-svg-dev,
+               qt6-declarative-dev,
+               qt6-declarative-dev-tools,
+               qt6-wayland-dev,
+               qt6-wayland-dev-tools,
+               libxcb1-dev,
+               libxcb-xfixes0-dev,
+               libgxde-bernese-qt6-dev,
                libdtk6core-dev,
                libdtk6gui-dev,
                libdtk2widget6-dev,
@@ -20,7 +27,11 @@ Homepage: https://gitee.com/GXDE-OS/gxde-ai-see
 
 Package: gxde-ai-see
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends},
+         qml6-module-qtquick-controls-gxde,
+         qml6-module-qtquick,
+         qml6-module-qtquick-layouts,
+         qml6-module-qtquick-window
 Recommends: gxde-k9
 Description: GXDE AI See - 小埃同学
  GXDE 桌面的 AI 助手：传送门、内容工厂、待办与小埃同学对话。

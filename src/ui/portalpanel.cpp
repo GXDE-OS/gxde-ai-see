@@ -8,54 +8,35 @@
 
 #include "actions/downloader.h"
 #include "actions/texttools.h"
-#include "factory/contentclassifier.h"
-#include "factory/contentfactory.h"
+#include "factory/factoryactions.h"
 
 #include "aboutdialog.h"
+#include "pointertravel.h"
 #include "dialogs/segmentdialog.h"
 #include "dialogs/speechdialog.h"
 #include "todo/todomodel.h"
 
+#include "staging/stagingitem.h"
+
 #include <QApplication>
 #include <QClipboard>
+#include <QCursor>
 #include <QDesktopServices>
 #include <QDir>
+#include <QDrag>
+#include <QFile>
 #include <QFileDialog>
 #include <QMessageBox>
-#include <QMenu>
-#include <QProcess>
-#include <QStandardPaths>
-#include <QFile>
-#include <QMouseEvent>
-#include <QTemporaryDir>
-
-#include "staging/stagingitem.h"
-#include "staging/stagingmodel.h"
-
-#include <QApplication>
-#include <QCursor>
-#include <QDrag>
-#include <QDragEnterEvent>
-#include <QDragLeaveEvent>
-#include <QDragMoveEvent>
-#include <QDropEvent>
-#include <QFontMetrics>
-#include <QGuiApplication>
-#include <QHBoxLayout>
-#include <QLabel>
-#include <QListView>
 #include <QMimeData>
-#include <QMouseEvent>
-#include <QPainter>
-#include <QPainterPath>
 #include <QPushButton>
+#include <QQmlApplicationEngine>
+#include <QQuickWindow>
 #include <QScreen>
-#include <QStyledItemDelegate>
+#include <QStandardPaths>
 #include <QTimer>
-#include <QVariantAnimation>
-#include <QEasingCurve>
 #include <QUrl>
-#include <QVBoxLayout>
+
+#include <bernese/window_effects.h>
 
 #ifdef GXDE_HAVE_LAYERSHELLQT
 #include <LayerShellQt/Window>
@@ -63,956 +44,226 @@
 
 namespace {
 
-constexpr int kPanelWidth = 500;
-constexpr int kZoneWidth = 176;
 constexpr int kRowHeight = 56;
-constexpr int kMargin = 12;
-constexpr int kMaxListHeight = 0; // computed from the screen
+constexpr char kStagingMime[] = "application/x-gxde-ai-see-staging";
 
-QRect checkRect(const QRect &row)
+bool isWayland()
 {
-    return QRect(row.left() + 12, row.center().y() - 9, 18, 18);
+    return QGuiApplication::platformName().startsWith(QLatin1String("wayland"));
 }
 
-QRect iconRect(const QRect &row)
+QString slimyPath()
 {
-    return QRect(row.left() + 42, row.center().y() - 17, 34, 34);
-}
-
-QRect closeRect(const QRect &row)
-{
-    return QRect(row.right() - 36, row.center().y() - 14, 28, 28);
-}
-
-QRect pinRect(const QRect &row)
-{
-    return QRect(row.right() - 66, row.center().y() - 14, 28, 28);
-}
-
-QRect textRect(const QRect &row)
-{
-    const QRect icon = iconRect(row);
-    const QRect pin = pinRect(row);
-    return QRect(icon.right() + 12, row.top() + 6, pin.left() - icon.right() - 20,
-                 row.height() - 12);
-}
-
-void drawPushpin(QPainter *painter, const QRect &rect, const QColor &color, bool pinned)
-{
-    painter->save();
-    painter->translate(rect.center());
-    painter->rotate(45.0);
-    painter->setPen(QPen(color, 1.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-    painter->setBrush(pinned ? QBrush(color) : Qt::NoBrush);
-    painter->drawRoundedRect(QRectF(-4.5, -9.0, 9.0, 7.0), 3.0, 3.0);
-    painter->drawLine(QPointF(0.0, -2.0), QPointF(0.0, 7.5));
-    painter->restore();
-}
-
-bool mimeSupported(const QMimeData *mime)
-{
-    return mime && (mime->hasUrls() || mime->hasText() || mime->hasImage());
-}
-
-QString typeLabel(const QModelIndex &index)
-{
-    const int type = index.data(StagingModel::TypeRole).toInt();
-    switch (type) {
-    case StagingItem::File:
-        return QObject::tr("文件");
-    case StagingItem::Image:
-        return QObject::tr("图片");
-    case StagingItem::Text:
-        return QObject::tr("文字 · %1 字")
-            .arg(index.data(StagingModel::TextRole).toString().size());
-    default:
-        return QString();
-    }
+    return QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) +
+           QStringLiteral("/GXDE/gxde-k9/slimy/gxde-ai-see.slimy");
 }
 
 } // namespace
 
-/* ------------------------------------------------------------------------- */
-/* Delegate                                                                  */
-/* ------------------------------------------------------------------------- */
-
-class StagingDelegate : public QStyledItemDelegate
-{
-    Q_OBJECT
-
-public:
-    explicit StagingDelegate(QObject *parent = nullptr)
-        : QStyledItemDelegate(parent)
-    {
-    }
-
-    void setHoverRow(int row) { m_hoverRow = row; }
-
-    void setRemoveState(int row, qreal progress)
-    {
-        m_removingRow = row;
-        m_removeProgress = progress;
-    }
-
-signals:
-    void removeRequested(int row);
-
-public:
-
-
-    QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override
-    {
-        Q_UNUSED(option)
-        Q_UNUSED(index)
-        return QSize(0, kRowHeight);
-    }
-
-    void paint(QPainter *painter, const QStyleOptionViewItem &option,
-               const QModelIndex &index) const override
-    {
-        painter->save();
-        painter->setRenderHint(QPainter::Antialiasing, true);
-
-        if (index.row() == m_removingRow && m_removeProgress > 0.0) {
-            painter->setOpacity(1.0 - m_removeProgress);
-            painter->translate(m_removeProgress * 48.0, 0.0);
-        }
-
-        const QRect row = option.rect.adjusted(4, 2, -4, -2);
-        const bool hovered = index.row() == m_hoverRow;
-
-        if (hovered) {
-            painter->setPen(Qt::NoPen);
-            painter->setBrush(QColor(255, 255, 255, 26));
-            painter->drawRoundedRect(row, 8, 8);
-        }
-
-        const bool checked = index.data(StagingModel::CheckedRole).toBool();
-        const QRect check = checkRect(option.rect);
-        painter->setPen(QPen(checked ? QColor(74, 144, 255) : QColor(255, 255, 255, 80), 1.4));
-        painter->setBrush(checked ? QColor(74, 144, 255) : QColor(255, 255, 255, 12));
-        painter->drawRoundedRect(check, 5, 5);
-
-        if (checked) {
-            QPainterPath mark;
-            mark.moveTo(check.left() + 4.5, check.center().y());
-            mark.lineTo(check.left() + 7.5, check.bottom() - 5);
-            mark.lineTo(check.right() - 4.0, check.top() + 5.0);
-            painter->setPen(QPen(Qt::white, 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-            painter->setBrush(Qt::NoBrush);
-            painter->drawPath(mark);
-        }
-
-        const QIcon icon = index.data(StagingModel::IconRole).value<QIcon>();
-        if (!icon.isNull()) {
-            icon.paint(painter, iconRect(option.rect), Qt::AlignCenter);
-        }
-
-        const QRect text = textRect(option.rect);
-
-        QFont nameFont = option.font;
-        nameFont.setPixelSize(14);
-        nameFont.setWeight(QFont::Medium);
-        painter->setFont(nameFont);
-        painter->setPen(QColor(255, 255, 255, 236));
-
-        const QFontMetrics nameMetrics(nameFont);
-        const QString name = index.data(StagingModel::NameRole).toString();
-        const QRect nameRect(text.left(), text.top() + 2, text.width(), 20);
-        painter->drawText(nameRect, Qt::AlignLeft | Qt::AlignVCenter,
-                          nameMetrics.elidedText(name, Qt::ElideMiddle, nameRect.width()));
-
-        QFont subFont = option.font;
-        subFont.setPixelSize(11);
-        painter->setFont(subFont);
-        painter->setPen(QColor(255, 255, 255, 120));
-        const QRect subRect(text.left(), text.top() + 24, text.width(), 16);
-        painter->drawText(subRect, Qt::AlignLeft | Qt::AlignVCenter, typeLabel(index));
-
-        const bool pinned = index.data(StagingModel::PinnedRole).toBool();
-        if (pinned || hovered) {
-            drawPushpin(painter, pinRect(option.rect),
-                        pinned ? QColor(120, 180, 255, 235) : QColor(255, 255, 255, 150),
-                        pinned);
-        }
-
-        if (hovered) {
-            const QRect close = closeRect(option.rect).adjusted(9, 9, -9, -9);
-            painter->setPen(QPen(QColor(255, 255, 255, 170), 1.7, Qt::SolidLine, Qt::RoundCap));
-            painter->drawLine(close.topLeft(), close.bottomRight());
-            painter->drawLine(close.topRight(), close.bottomLeft());
-        }
-
-        painter->restore();
-    }
-
-    bool editorEvent(QEvent *event, QAbstractItemModel *model,
-                     const QStyleOptionViewItem &option, const QModelIndex &index) override
-    {
-        if (event->type() != QEvent::MouseButtonRelease) {
-            return false;
-        }
-
-        auto *mouse = static_cast<QMouseEvent *>(event);
-        const QPoint pos = mouse->position().toPoint();
-
-        if (checkRect(option.rect).contains(pos)) {
-            auto *staging = static_cast<StagingModel *>(model);
-            staging->setChecked(index.row(), !index.data(StagingModel::CheckedRole).toBool());
-            return true;
-        }
-
-        if (pinRect(option.rect).contains(pos)) {
-            auto *staging = static_cast<StagingModel *>(model);
-            staging->setPinned(index.row(), !index.data(StagingModel::PinnedRole).toBool());
-            return true;
-        }
-
-        if (closeRect(option.rect).contains(pos)) {
-            Q_EMIT removeRequested(index.row());
-            return true;
-        }
-
-        return false;
-    }
-
-private:
-    int m_hoverRow = -1;
-    int m_removingRow = -1;
-    qreal m_removeProgress = 0.0;
-};
-
-/* ------------------------------------------------------------------------- */
-/* View                                                                      */
-/* ------------------------------------------------------------------------- */
-
-class StagingView : public QListView
-{
-    Q_OBJECT
-
-public:
-    explicit StagingView(StagingModel *model, QWidget *parent = nullptr)
-        : QListView(parent)
-        , m_delegate(new StagingDelegate(this))
-    {
-        setModel(model);
-        setItemDelegate(m_delegate);
-        setSelectionMode(QAbstractItemView::NoSelection);
-        setEditTriggers(QAbstractItemView::NoEditTriggers);
-        setFrameShape(QFrame::NoFrame);
-        setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
-        setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-        setUniformItemSizes(true);
-        setSpacing(0);
-        setMouseTracking(true);
-        viewport()->setMouseTracking(true);
-        viewport()->setAutoFillBackground(false);
-        setStyleSheet(QStringLiteral("QListView { background: transparent; }"));
-        setAcceptDrops(true);
-
-        m_removeAnim = new QVariantAnimation(this);
-        m_removeAnim->setDuration(200);
-        m_removeAnim->setEasingCurve(QEasingCurve::OutCubic);
-        connect(m_removeAnim, &QVariantAnimation::valueChanged, this, [this](const QVariant &value) {
-            if (m_removingRow >= 0) {
-                m_delegate->setRemoveState(m_removingRow, value.toReal());
-                viewport()->update();
-            }
-        });
-        connect(m_removeAnim, &QVariantAnimation::finished, this, [this]() {
-            if (m_removingRow < 0) {
-                return;
-            }
-            auto *staging = qobject_cast<StagingModel *>(this->model());
-            const int row = m_removingRow;
-            m_delegate->setRemoveState(-1, 0.0);
-            m_removingRow = -1;
-            if (staging) {
-                staging->removeRow(row);
-            }
-            viewport()->update();
-        });
-        connect(m_delegate, &StagingDelegate::removeRequested, this, &StagingView::startRemove);
-    }
-
-signals:
-    void dragContent(const QMimeData *mime);
-    void dragFinished();
-
-protected:
-    void paintEvent(QPaintEvent *event) override
-    {
-        QListView::paintEvent(event);
-        if (model() && model()->rowCount() == 0) {
-            QPainter painter(viewport());
-            painter.setRenderHint(QPainter::Antialiasing, true);
-            QFont font = this->font();
-            font.setPixelSize(12);
-            painter.setFont(font);
-            painter.setPen(QColor(255, 255, 255, 105));
-            painter.drawText(viewport()->rect().adjusted(12, 12, -12, -12),
-                             Qt::AlignCenter | Qt::TextWordWrap,
-                             tr("把文件、文字或图片拖到这里"));
-        }
-    }
-
-    void mousePressEvent(QMouseEvent *event) override
-    {
-        m_pressPos = event->position().toPoint();
-        m_pressIndex = indexAt(m_pressPos);
-        if (m_pressIndex.isValid()) {
-            const QRect row = visualRect(m_pressIndex);
-            if (checkRect(row).contains(m_pressPos) || closeRect(row).contains(m_pressPos) ||
-                pinRect(row).contains(m_pressPos)) {
-                m_pressIndex = QModelIndex();
-            }
-        }
-        QListView::mousePressEvent(event);
-    }
-
-    void mouseMoveEvent(QMouseEvent *event) override
-    {
-        const QPoint pos = event->position().toPoint();
-        if ((event->buttons() & Qt::LeftButton) && m_pressIndex.isValid()) {
-            if ((pos - m_pressPos).manhattanLength() >= QApplication::startDragDistance()) {
-                const QModelIndex index = m_pressIndex;
-                m_pressIndex = QModelIndex();
-                startDragForIndex(index);
-                return;
-            }
-        }
-        updateHover(pos);
-        QListView::mouseMoveEvent(event);
-    }
-
-    void leaveEvent(QEvent *event) override
-    {
-        updateHover(QPoint(-1, -1));
-        QListView::leaveEvent(event);
-    }
-
-    void dragEnterEvent(QDragEnterEvent *event) override
-    {
-        if (isOwnDrag(event->mimeData())) {
-            event->acceptProposedAction();
-            return;
-        }
-        if (mimeSupported(event->mimeData())) {
-            Q_EMIT dragContent(event->mimeData());
-            event->acceptProposedAction();
-            return;
-        }
-        event->ignore();
-    }
-
-    void dragMoveEvent(QDragMoveEvent *event) override
-    {
-        if (isOwnDrag(event->mimeData())) {
-            event->acceptProposedAction();
-            return;
-        }
-        if (mimeSupported(event->mimeData())) {
-            Q_EMIT dragContent(event->mimeData());
-            event->acceptProposedAction();
-            updateHover(event->position().toPoint());
-            return;
-        }
-        event->ignore();
-    }
-
-    void dropEvent(QDropEvent *event) override
-    {
-        if (isOwnDrag(event->mimeData())) {
-            auto *staging = qobject_cast<StagingModel *>(this->model());
-            const QString id = QString::fromUtf8(
-                event->mimeData()->data(QStringLiteral("application/x-gxde-ai-see-staging")));
-            int from = -1;
-            if (staging) {
-                for (int row = 0; row < staging->count(); ++row) {
-                    const StagingItem *item = staging->itemAt(row);
-                    if (item && item->id == id) {
-                        from = row;
-                        break;
-                    }
-                }
-            }
-            const QModelIndex index = indexAt(event->position().toPoint());
-            int to = index.isValid() ? index.row() : (staging ? staging->count() - 1 : -1);
-            if (staging && from >= 0 && to >= 0 && from != to) {
-                staging->moveItem(from, to);
-            }
-            m_internalMove = true;
-            event->acceptProposedAction();
-            return;
-        }
-        if (!mimeSupported(event->mimeData())) {
-            event->ignore();
-            return;
-        }
-
-        auto *staging = qobject_cast<StagingModel *>(this->model());
-        if (staging) {
-            staging->addMimeData(event->mimeData());
-        }
-        Q_EMIT dragFinished();
-        event->acceptProposedAction();
-    }
-
-    void dragLeaveEvent(QDragLeaveEvent *event) override
-    {
-        Q_EMIT dragFinished();
-        QListView::dragLeaveEvent(event);
-    }
-
-private:
-    void updateHover(const QPoint &pos)
-    {
-        const int row = pos.x() < 0 ? -1 : indexAt(pos).row();
-        if (row == m_hoverRow) {
-            return;
-        }
-        m_hoverRow = row;
-        m_delegate->setHoverRow(row);
-        viewport()->update();
-    }
-
-    static bool isOwnDrag(const QMimeData *mime)
-    {
-        return mime && mime->hasFormat(QStringLiteral("application/x-gxde-ai-see-staging"));
-    }
-
-    void startRemove(int row)
-    {
-        if (m_removeAnim->state() == QAbstractAnimation::Running) {
-            return;
-        }
-        if (row < 0 || !model() || row >= model()->rowCount()) {
-            return;
-        }
-        m_removingRow = row;
-        m_delegate->setRemoveState(row, 0.0);
-        m_removeAnim->setStartValue(0.0);
-        m_removeAnim->setEndValue(1.0);
-        m_removeAnim->start();
-    }
-
-    void startDragForIndex(const QModelIndex &index)
-    {
-        if (!index.isValid()) {
-            return;
-        }
-
-        const int type = index.data(StagingModel::TypeRole).toInt();
-        const QString uri = index.data(StagingModel::UriRole).toString();
-        const QString text = index.data(StagingModel::TextRole).toString();
-        const QString id = index.data(StagingModel::IdRole).toString();
-        const bool pinned = index.data(StagingModel::PinnedRole).toBool();
-
-        auto *mime = new QMimeData;
-        mime->setData(QStringLiteral("application/x-gxde-ai-see-staging"), id.toUtf8());
-        if (type == StagingItem::File || type == StagingItem::Image) {
-            if (!uri.isEmpty()) {
-                mime->setUrls({QUrl::fromLocalFile(uri)});
-                mime->setText(uri);
-            }
-            if (type == StagingItem::Image) {
-                const QImage image(uri);
-                if (!image.isNull()) {
-                    mime->setImageData(image);
-                }
-            }
-        } else {
-            mime->setText(text);
-        }
-
-        auto *drag = new QDrag(this);
-        drag->setMimeData(mime);
-        const QIcon icon = index.data(StagingModel::IconRole).value<QIcon>();
-        if (!icon.isNull()) {
-            drag->setPixmap(icon.pixmap(48, 48));
-        }
-
-        const Qt::DropAction action =
-            drag->exec(Qt::CopyAction | Qt::MoveAction, Qt::CopyAction);
-
-        if (m_internalMove) {
-            m_internalMove = false;
-            return;
-        }
-
-        /* Dragging an item out of the staging area consumes it unless it is
-         * pinned.  A cancelled drag (Esc / dropped on nothing) keeps it. */
-        if (action != Qt::IgnoreAction && !pinned) {
-            auto *staging = qobject_cast<StagingModel *>(this->model());
-            if (staging) {
-                for (int row = 0; row < staging->count(); ++row) {
-                    const StagingItem *item = staging->itemAt(row);
-                    if (item && item->id == id) {
-                        staging->removeRows(row, 1);
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    StagingDelegate *m_delegate = nullptr;
-    QVariantAnimation *m_removeAnim = nullptr;
-    QPoint m_pressPos;
-    QModelIndex m_pressIndex;
-    int m_hoverRow = -1;
-    int m_removingRow = -1;
-    bool m_internalMove = false;
-};
-
-/* ------------------------------------------------------------------------- */
-/* Portal zone                                                               */
-/* ------------------------------------------------------------------------- */
-
-class PortalZone : public QWidget
-{
-    Q_OBJECT
-
-public:
-    explicit PortalZone(QWidget *parent = nullptr)
-        : QWidget(parent)
-    {
-        setAcceptDrops(true);
-        setMinimumHeight(190);
-
-        m_portalTimer.setSingleShot(true);
-        m_portalTimer.setInterval(80);
-        connect(&m_portalTimer, &QTimer::timeout, this, [this]() {
-            if (m_active && !m_suppressed) {
-                Q_EMIT portalRequested();
-            }
-        });
-
-        m_hintLabel = new QLabel(this);
-        m_hintLabel->setAlignment(Qt::AlignCenter);
-        m_hintLabel->setWordWrap(true);
-        m_hintLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
-        m_hintLabel->setStyleSheet(QStringLiteral("color: rgba(255,255,255,0.62);"
-                                                  "font-size: 11px;"));
-        m_hintLabel->hide();
-
-        m_hintTimer.setSingleShot(true);
-        m_hintTimer.setInterval(2600);
-        connect(&m_hintTimer, &QTimer::timeout, m_hintLabel, &QLabel::hide);
-    }
-
-    void showMessage(const QString &message) { showHint(message); }
-
-    /* Set when the drag started while the pointer was already over the portal:
-     * do not open the overview until the pointer leaves the panel. */
-    void setSuppressPortal(bool suppress)
-    {
-        m_suppressed = suppress;
-        if (suppress) {
-            m_portalTimer.stop();
-        }
-    }
-    bool suppressed() const { return m_suppressed; }
-    void triggerPortal() { Q_EMIT portalRequested(); }
-    void setPortalActive(bool active)
-    {
-        m_portalActive = active;
-        if (!active) {
-            m_portalTimer.stop();
-        }
-    }
-
-signals:
-    void chatRequested();
-    void portalRequested();
-    void portalCancelled();
-    void dragContent(const QMimeData *mime);
-    void dragFinished();
-
-protected:
-    void resizeEvent(QResizeEvent *event) override
-    {
-        QWidget::resizeEvent(event);
-        m_hintLabel->setGeometry(12, height() - 84, width() - 24, 36);
-    }
-
-    void paintEvent(QPaintEvent *event) override
-    {
-        Q_UNUSED(event)
-        QPainter painter(this);
-        painter.setRenderHint(QPainter::Antialiasing, true);
-
-        const QRectF box = QRectF(rect()).adjusted(1.0, 1.0, -1.0, -1.0);
-        QPainterPath path;
-        path.addRoundedRect(box, 14, 14);
-
-        QColor fill = QColor(255, 255, 255, 10);
-        if (m_active) {
-            fill = QColor(74, 144, 255, 62);
-        } else if (m_hover) {
-            fill = QColor(255, 255, 255, 20);
-        }
-        painter.fillPath(path, fill);
-
-        const QColor border = m_active ? QColor(120, 180, 255, 230)
-                                       : QColor(255, 255, 255, 58);
-        painter.setPen(QPen(border, 1.5, Qt::DashLine));
-        painter.setBrush(Qt::NoBrush);
-        painter.drawPath(path);
-
-        QFont titleFont = font();
-        titleFont.setPixelSize(22);
-        titleFont.setWeight(QFont::DemiBold);
-        painter.setFont(titleFont);
-        painter.setPen(QColor(255, 255, 255, 242));
-        painter.drawText(QRect(0, height() / 3 - 18, width(), 32), Qt::AlignHCenter,
-                         tr("传送门"));
-
-        QFont subFont = font();
-        subFont.setPixelSize(12);
-        painter.setFont(subFont);
-        painter.setPen(QColor(255, 255, 255, 150));
-        painter.drawText(QRect(12, height() / 3 + 20, width() - 24, 40),
-                         Qt::AlignHCenter | Qt::TextWordWrap,
-                         tr("拖到这里\n选择窗口跃迁"));
-    }
-
-    void enterEvent(QEnterEvent *event) override
-    {
-        Q_UNUSED(event)
-        m_hover = true;
-        update();
-    }
-
-    void leaveEvent(QEvent *event) override
-    {
-        QWidget::leaveEvent(event);
-        m_hover = false;
-        m_active = false;
-        update();
-    }
-
-    void dragEnterEvent(QDragEnterEvent *event) override
-    {
-        if (!mimeSupported(event->mimeData())) {
-            event->ignore();
-            return;
-        }
-        m_active = true;
-        update();
-        if (!m_portalActive && !m_suppressed) {
-            m_portalTimer.start();
-        }
-        Q_EMIT dragContent(event->mimeData());
-        event->acceptProposedAction();
-    }
-
-    void dragMoveEvent(QDragMoveEvent *event) override
-    {
-        if (mimeSupported(event->mimeData())) {
-            Q_EMIT dragContent(event->mimeData());
-            event->acceptProposedAction();
-        }
-    }
-
-    void dragLeaveEvent(QDragLeaveEvent *event) override
-    {
-        Q_UNUSED(event)
-        m_active = false;
-        update();
-        m_portalTimer.stop();
-        Q_EMIT dragFinished();
-    }
-
-    void dropEvent(QDropEvent *event) override
-    {
-        m_active = false;
-        m_portalTimer.stop();
-        update();
-        Q_EMIT dragFinished();
-        if (!m_portalActive) {
-            showHint(tr("悬停在「传送门」上，再移动到目标窗口"));
-            event->ignore();
-            return;
-        }
-        event->acceptProposedAction();
-    }
-
-private:
-    void showHint(const QString &hint)
-    {
-        m_hintLabel->setText(hint);
-        m_hintLabel->show();
-        m_hintTimer.start();
-    }
-
-    QLabel *m_hintLabel = nullptr;
-    QTimer m_hintTimer;
-    QTimer m_portalTimer;
-    bool m_active = false;
-    bool m_hover = false;
-    bool m_portalActive = false;
-    bool m_suppressed = false;
-};
-
-/* ------------------------------------------------------------------------- */
-/* Panel                                                                     */
-/* ------------------------------------------------------------------------- */
-
-PortalPanel::PortalPanel(StagingModel *model, QWidget *parent)
-    : Dtk::Widget::DBlurEffectWidget(parent)
+PortalPanel::PortalPanel(StagingModel *model, QObject *parent)
+    : QObject(parent)
     , m_model(model)
+    , m_session(new PortalSession(this))
 {
-    setWindowTitle(tr("GXDE 小埃同学"));
-    setWindowFlags(Qt::FramelessWindowHint | Qt::Tool);
-    setAttribute(Qt::WA_TranslucentBackground);
-    setAttribute(Qt::WA_ShowWithoutActivating);
-    setMaskColor(QColor(24, 24, 28, 190));
-    setBlurRectXRadius(16);
-    setBlurRectYRadius(16);
-    setFixedWidth(kPanelWidth);
+    Config *config = Config::instance();
+    m_rightMargin = config->getInt(QStringLiteral("panel/rightMargin"), 16);
+    m_bottomMargin = config->getInt(QStringLiteral("panel/bottomMargin"), 16);
+    m_manualListHeight = config->getInt(QStringLiteral("panel/listHeight"), 0);
+    m_fixedPosition = config->getBool(QStringLiteral("panel/fixedPosition"), true);
+    m_fixedSize = config->getBool(QStringLiteral("panel/fixedSize"), false);
 
-    setupWindow();
-    setupUi();
+    /* hover the portal this long before the windows get out of the way */
+    m_portalTimer = new QTimer(this);
+    m_portalTimer->setSingleShot(true);
+    m_portalTimer->setInterval(80);
+    connect(m_portalTimer, &QTimer::timeout, this, &PortalPanel::openPortal);
 
-    m_rightMargin = Config::instance()->getInt(QStringLiteral("panel/rightMargin"), 16);
-    m_bottomMargin = Config::instance()->getInt(QStringLiteral("panel/bottomMargin"), 16);
-    m_manualListHeight = Config::instance()->getInt(QStringLiteral("panel/listHeight"), 0);
-    m_fixedPosition = Config::instance()->getBool(QStringLiteral("panel/fixedPosition"), true);
-    m_fixedSize = Config::instance()->getBool(QStringLiteral("panel/fixedSize"), false);
+    /* the drag may cross from the portal into the grid: only restore the
+     * windows when it did not come back quickly */
+    m_leaveTimer = new QTimer(this);
+    m_leaveTimer->setSingleShot(true);
+    m_leaveTimer->setInterval(180);
+    connect(m_leaveTimer, &QTimer::timeout, this, [this]() {
+        m_portalTimer->stop();
+        m_session->cancel();
+    });
+
+    m_factoryTimer = new QTimer(this);
+    m_factoryTimer->setSingleShot(true);
+    m_factoryTimer->setInterval(220);
+    connect(m_factoryTimer, &QTimer::timeout, this, [this]() {
+        /* moving from the portal zone into the factory must not clear it:
+         * only once the pointer really left the panel */
+        if (m_window && m_window->geometry().contains(QCursor::pos())) {
+            m_factoryTimer->start();
+            return;
+        }
+        setContent(DropContent());
+    });
+
+    m_suppressWatch = new QTimer(this);
+    m_suppressWatch->setInterval(80);
+    connect(m_suppressWatch, &QTimer::timeout, this, [this]() {
+        if (!m_portalSuppressed) {
+            m_suppressWatch->stop();
+            return;
+        }
+        if (m_window && m_window->geometry().contains(QCursor::pos())) {
+            return;
+        }
+        m_suppressWatch->stop();
+        setPortalSuppressed(false);
+        /* the compositor overview follows the pointer anywhere on screen */
+        if (PortalClient::instance()->available()) {
+            openPortal();
+        }
+    });
 
     connect(m_model, &StagingModel::countChanged, this, [this]() {
-        if (m_countLabel) {
-            m_countLabel->setText(tr("%1 项").arg(m_model->count()));
-        }
         updateMode();
         refreshLayout();
+        Q_EMIT checkedChanged();
     });
-    connect(m_model, &StagingModel::countChanged, m_view->viewport(),
-            qOverload<>(&QWidget::update));
-    connect(m_model, &StagingModel::dataChanged, this, [this]() { updateSelectionBar(); });
-    connect(m_model, &StagingModel::rowsRemoved, this, [this]() { updateSelectionBar(); });
+    connect(m_model, &StagingModel::dataChanged, this, &PortalPanel::checkedChanged);
+    connect(m_model, &StagingModel::rowsRemoved, this, &PortalPanel::checkedChanged);
 
-    connect(m_selectAllButton, &QPushButton::clicked, this, [this]() {
-        for (int row = 0; row < m_model->count(); ++row) {
-            m_model->setChecked(row, true);
+    connect(m_session, &PortalSession::activeChanged, this, &PortalPanel::portalOpenChanged);
+    /* never quit with every window minimized */
+    connect(qApp, &QCoreApplication::aboutToQuit, m_session, &PortalSession::cancel);
+    connect(PortalClient::instance(), &PortalClient::dragEnded, this, [this]() {
+        setCompositorPortalActive(false);
+        m_session->cancel();
+    });
+    connect(PortalClient::instance(), &PortalClient::portalClosed, this,
+            [this]() { setCompositorPortalActive(false); });
+
+    m_travel = new PointerTravel(this);
+    connect(m_travel, &PointerTravel::moved, this, [this](const QPointF &travel) {
+        if (m_dragMode != 0) {
+            m_followTravel = true;
+            followPointer(travel);
         }
     });
-    connect(m_invertButton, &QPushButton::clicked, this, [this]() {
-        for (int row = 0; row < m_model->count(); ++row) {
-            const StagingItem *item = m_model->itemAt(row);
-            if (item) {
-                m_model->setChecked(row, !item->checked);
-            }
-        }
-    });
-    connect(m_deleteButton, &QPushButton::clicked, this, [this]() {
-        QList<int> rows;
-        for (int row = 0; row < m_model->count(); ++row) {
-            const StagingItem *item = m_model->itemAt(row);
-            if (item && item->checked) {
-                rows.append(row);
-            }
-        }
-        for (int i = rows.size() - 1; i >= 0; --i) {
-            m_model->removeRows(rows.at(i), 1);
-        }
-    });
+
+
+    m_engine = new QQmlApplicationEngine(this);
+    m_engine->addImageProvider(QStringLiteral("taskwindow"),
+                               new TaskWindowIconProvider(m_session));
+    m_engine->setInitialProperties({ { QStringLiteral("controller"),
+                                       QVariant::fromValue(this) } });
+    m_engine->loadFromModule("GxdeAiSee", "PortalPanel");
+    m_window = qobject_cast<QQuickWindow *>(m_engine->rootObjects().value(0));
+    if (!m_window) {
+        qWarning("gxde-ai-see: failed to load the portal panel");
+        return;
+    }
+
+    setupWindow();
+    refreshLayout();
 }
 
-PortalPanel::~PortalPanel() = default;
+PortalPanel::~PortalPanel()
+{
+    m_session->cancel();
+}
 
 void PortalPanel::setupWindow()
 {
+    m_window->setTitle(tr("GXDE 小埃同学"));
+    Qt::WindowFlags flags = Qt::FramelessWindowHint | Qt::Tool | Qt::WindowDoesNotAcceptFocus;
+    if (!isWayland()) {
+        /* everything else gets minimized under it during a portal jump */
+        flags |= Qt::WindowStaysOnTopHint;
+    }
+    m_window->setFlags(flags);
+    m_window->setColor(Qt::transparent);
+
 #ifdef GXDE_HAVE_LAYERSHELLQT
-    if (QGuiApplication::platformName().startsWith(QLatin1String("wayland"))) {
-        createWinId();
-        if (auto *layer = LayerShellQt::Window::get(windowHandle())) {
+    if (isWayland()) {
+        if (auto *layer = LayerShellQt::Window::get(m_window)) {
             LayerShellQt::Window::Anchors anchors;
             anchors |= LayerShellQt::Window::AnchorRight;
             anchors |= LayerShellQt::Window::AnchorBottom;
             layer->setAnchors(anchors);
-            layer->setMargins(
-                QMargins(0, 0, m_rightMargin, m_bottomMargin));
+            layer->setMargins(QMargins(0, 0, m_rightMargin, m_bottomMargin));
             layer->setLayer(LayerShellQt::Window::LayerOverlay);
-            layer->setKeyboardInteractivity(
-                LayerShellQt::Window::KeyboardInteractivityNone);
+            layer->setKeyboardInteractivity(LayerShellQt::Window::KeyboardInteractivityNone);
             layer->setExclusiveZone(0);
             layer->setScope(QStringLiteral("gxde-ai-see"));
             layer->setScreenConfiguration(LayerShellQt::Window::ScreenFromQWindow);
         }
     }
 #endif
+
+    if (m_wantedSize.isValid()) {
+        m_window->resize(m_wantedSize);
+    }
+    /* a hand move step is on screen once its frame went out */
+    connect(
+        m_window, &QQuickWindow::frameSwapped, this, [this]() { m_stepPending = false; },
+        Qt::QueuedConnection);
+    connect(m_window, &QWindow::visibleChanged, this, [this](bool visible) {
+        if (visible) {
+            applyMargins();
+            updateBlur();
+        } else {
+            m_session->cancel();
+        }
+    });
 }
 
-void PortalPanel::setupUi()
+/* ------------------------------------------------------------------------- */
+/* State                                                                     */
+/* ------------------------------------------------------------------------- */
+
+bool PortalPanel::isVisible() const
 {
-    auto *root = new QVBoxLayout(this);
-    root->setContentsMargins(kMargin, kMargin, kMargin, kMargin);
-    root->setSpacing(8);
+    return m_window && m_window->isVisible();
+}
 
-    auto *outer = new QHBoxLayout;
-    outer->setContentsMargins(0, 0, 0, 0);
-    outer->setSpacing(10);
+int PortalPanel::screenHeight() const
+{
+    QScreen *scr = m_window && m_window->screen() ? m_window->screen()
+                                                  : QGuiApplication::primaryScreen();
+    return scr ? scr->availableGeometry().height() : 900;
+}
 
-    m_zone = new PortalZone(this);
-    m_zone->setFixedWidth(kZoneWidth);
-    outer->addWidget(m_zone);
-    m_suppressWatch = new QTimer(this);
-    m_suppressWatch->setInterval(80);
-    connect(m_suppressWatch, &QTimer::timeout, this, [this]() {
-        if (!m_zone->suppressed()) {
-            m_suppressWatch->stop();
-            return;
+bool PortalPanel::portalOpen() const
+{
+    return m_compositorPortalActive || m_session->active();
+}
+
+QString PortalPanel::contentSummary() const
+{
+    return m_content.valid() ? m_content.summary() : QString();
+}
+
+QVariantList PortalPanel::actions() const
+{
+    return m_actions;
+}
+
+bool PortalPanel::anyChecked() const
+{
+    for (int row = 0; row < m_model->count(); ++row) {
+        const StagingItem *item = m_model->itemAt(row);
+        if (item && item->checked) {
+            return true;
         }
-        if (rect().contains(mapFromGlobal(QCursor::pos()))) {
-            return;
-        }
-        m_suppressWatch->stop();
-        m_zone->setSuppressPortal(false);
-        m_zone->triggerPortal();
-    });
-
-    connect(m_zone, &PortalZone::portalRequested, this, [this]() {
-        PortalClient *portal = PortalClient::instance();
-        QScreen *scr = screen() ? screen() : QGuiApplication::primaryScreen();
-        QRect panelRect = geometry();
-        if (scr) {
-            const QRect avail = scr->availableGeometry();
-            panelRect = QRect(avail.x() + avail.width() - width() - m_rightMargin,
-                              avail.y() + avail.height() - height() - m_bottomMargin,
-                              width(), height());
-        }
-        if (portal->beginPortal(panelRect)) {
-            m_zone->setPortalActive(true);
-            m_zone->showMessage(tr("移动到目标窗口上松手"));
-        } else {
-            m_zone->showMessage(portal->available() ? tr("当前无已打开的窗口")
-                                                    : tr("当前环境不支持传送门"));
-        }
-    });
-    connect(m_zone, &PortalZone::portalCancelled, this, []() {
-        PortalClient::instance()->cancelPortal();
-    });
-    connect(PortalClient::instance(), &PortalClient::dragEnded, this,
-            [this]() { m_zone->setPortalActive(false); });
-    connect(PortalClient::instance(), &PortalClient::portalClosed, this,
-            [this]() { m_zone->setPortalActive(false); });
-
-    auto *right = new QVBoxLayout;
-    right->setContentsMargins(0, 0, 0, 0);
-    right->setSpacing(6);
-
-    m_header = new QWidget(this);
-    auto *headerLayout = new QHBoxLayout(m_header);
-    headerLayout->setContentsMargins(12, 0, 12, 0);
-    headerLayout->setSpacing(8);
-
-    auto *title = new QLabel(tr("暂存区"), m_header);
-    QFont titleFont = title->font();
-    titleFont.setPixelSize(13);
-    titleFont.setWeight(QFont::DemiBold);
-    title->setFont(titleFont);
-    title->setStyleSheet(QStringLiteral("color: rgba(255,255,255,0.88);"));
-    headerLayout->addWidget(title);
-    headerLayout->addStretch();
-
-    m_countLabel = new QLabel(tr("%1 项").arg(m_model->count()), m_header);
-    m_countLabel->setStyleSheet(QStringLiteral("color: rgba(255,255,255,0.45); font-size: 11px;"));
-    headerLayout->addWidget(m_countLabel);
-
-    right->addWidget(m_header);
-
-    m_selectionBar = new QWidget(this);
-    auto *selectionLayout = new QHBoxLayout(m_selectionBar);
-    selectionLayout->setContentsMargins(12, 0, 12, 0);
-    selectionLayout->setSpacing(6);
-
-    auto makeButton = [this, selectionLayout](const QString &text) {
-        auto *button = new QPushButton(text, m_selectionBar);
-        button->setFlat(true);
-        button->setFocusPolicy(Qt::NoFocus);
-        button->setCursor(Qt::PointingHandCursor);
-        button->setStyleSheet(QStringLiteral(
-            "QPushButton { color: rgba(255,255,255,0.78); background: rgba(255,255,255,0.08);"
-            " border: none; border-radius: 6px; padding: 4px 10px; font-size: 12px; }"
-            "QPushButton:hover { background: rgba(255,255,255,0.16); }"));
-        selectionLayout->addWidget(button);
-        return button;
-    };
-
-    m_selectAllButton = makeButton(tr("全选"));
-    m_invertButton = makeButton(tr("反选"));
-    m_deleteButton = makeButton(tr("删除选中"));
-    selectionLayout->addStretch();
-    m_selectionBar->hide();
-    right->addWidget(m_selectionBar);
-
-    m_view = new StagingView(m_model, this);
-    right->addWidget(m_view, 1);
-
-    outer->addLayout(right, 1);
-    root->addLayout(outer);
-
-    m_factory = new ContentFactory(this);
-    m_factory->show();
-    root->addWidget(m_factory);
-
-    m_toast = new QLabel(this);
-    m_toast->hide();
-    m_toast->setAttribute(Qt::WA_TransparentForMouseEvents);
-    m_toast->setStyleSheet(QStringLiteral(
-        "QLabel { background: rgba(0,0,0,0.72); color: white; border-radius: 8px;"
-        " padding: 6px 12px; font-size: 12px; }"));
-
-    m_factoryTimer = new QTimer(this);
-    m_factoryTimer->setSingleShot(true);
-    m_factoryTimer->setInterval(220);
-    connect(m_factoryTimer, &QTimer::timeout, this, [this]() {
-        if (!m_factory || !m_factory->isVisible()) {
-            return;
-        }
-        /* Dragging from the portal zone into the factory must not hide it:
-         * only hide once the pointer is really outside the panel. */
-        if (rect().contains(mapFromGlobal(QCursor::pos()))) {
-            m_factoryTimer->start();
-            return;
-        }
-        m_factory->clearContent();
-        refreshLayout();
-    });
-
-    connect(m_zone, &PortalZone::dragContent, this, &PortalPanel::noteDragContent);
-    connect(m_zone, &PortalZone::dragFinished, this, &PortalPanel::noteDragFinished);
-    connect(m_view, &StagingView::dragContent, this, &PortalPanel::noteDragContent);
-    connect(m_view, &StagingView::dragFinished, this, &PortalPanel::noteDragFinished);
-    connect(m_factory, &ContentFactory::actionRequested, this, &PortalPanel::runFactoryAction);
-    connect(m_factory, &ContentFactory::askRequested, this, &PortalPanel::openChatRequested);
-    connect(m_factory, &ContentFactory::askDropped, this, [this](const QMimeData *mime) {
-        if (!mime) {
-            return;
-        }
-        QStringList files;
-        for (const QUrl &url : mime->urls()) {
-            if (url.isLocalFile()) {
-                files.append(url.toLocalFile());
-            }
-        }
-        const QString text = mime->hasText() ? mime->text() : QString();
-        Q_EMIT askWithContent(text, files);
-    });
-    connect(m_factory, &ContentFactory::heightChanged, this, [this]() { refreshLayout(); });
-    connect(m_factory, &ContentFactory::dragContent, this, &PortalPanel::noteDragContent);
-    connect(m_factory, &ContentFactory::dragActivity, this, [this]() {
-        if (m_factoryTimer) {
-            m_factoryTimer->start();
-        }
-    });
+    }
+    return false;
 }
 
 void PortalPanel::refreshLayout()
 {
-    updateGeometryForContent();
+    const int maxListHeight = qMax(120, screenHeight() / 3);
+    const int contentHeight = m_model->count() * kRowHeight + 8;
+    const int wanted = m_manualListHeight > 0 ? m_manualListHeight : contentHeight;
+    const int listHeight = qBound(140, wanted, maxListHeight);
+    if (listHeight != m_listHeight) {
+        m_listHeight = listHeight;
+        Q_EMIT listHeightChanged();
+    }
 }
 
 void PortalPanel::setDragging(bool dragging)
@@ -1026,95 +277,731 @@ void PortalPanel::setDragging(bool dragging)
 
 void PortalPanel::updateMode()
 {
-    const bool stagingOnly = !m_dragging && m_model && m_model->count() > 0;
+    /* Only GXDE's compositor reports drags; elsewhere a drag counts once it
+     * reaches the panel, which is when the factory gets content. */
+    const bool dragging = m_dragging || m_content.valid();
+    const bool stagingOnly = !dragging && m_model && m_model->count() > 0;
     if (stagingOnly == m_stagingOnly) {
         return;
     }
     m_stagingOnly = stagingOnly;
-    if (m_zone) {
-        m_zone->setVisible(!stagingOnly);
-    }
-    if (m_factory) {
-        m_factory->setVisible(!stagingOnly);
-    }
-    setFixedWidth(stagingOnly ? 360 : kPanelWidth);
+    Q_EMIT stagingOnlyChanged();
     refreshLayout();
 }
 
-void PortalPanel::updateGeometryForContent()
+void PortalPanel::setContent(const DropContent &content)
 {
-    QScreen *scr = screen();
-    if (!scr) {
-        scr = QGuiApplication::primaryScreen();
+    m_content = content;
+    if (!content.valid()) {
+        m_classifiedMime.clear();
     }
-    const int screenHeight = scr ? scr->availableGeometry().height() : 900;
-    const int maxListHeight = qMax(120, screenHeight / 3);
 
-    const int contentHeight = m_model->count() * kRowHeight + 8;
-    const int wanted = m_manualListHeight > 0 ? m_manualListHeight : contentHeight;
-    const int listHeight = qBound(140, wanted, maxListHeight);
-    m_view->setFixedHeight(listHeight);
-
-    const int headerHeight = 26;
-    const int selectionHeight = (m_selectionBar && m_selectionBar->isVisible()) ? 32 : 0;
-    /* The factory always occupies the same strip, so neither the panel size nor
-     * its position changes when a drag starts or ends. */
-    const int factoryHeight =
-        (!m_stagingOnly && m_factory) ? m_factory->sizeHint().height() + 6 : 0;
-    const int totalHeight =
-        kMargin * 2 + headerHeight + 6 + selectionHeight + listHeight + factoryHeight;
-    resize(m_stagingOnly ? 360 : kPanelWidth, totalHeight);
+    /* actionsFor() may read the dropped file: once per payload */
+    m_actions.clear();
+    for (const FactoryAction &action : actionsFor(m_content)) {
+        m_actions.append(QVariantMap{
+            { QStringLiteral("id"), action.id },
+            { QStringLiteral("label"), action.label },
+            { QStringLiteral("icon"), action.icon },
+            { QStringLiteral("hint"), action.hint },
+            { QStringLiteral("enabled"), action.enabled },
+        });
+    }
+    Q_EMIT contentChanged();
+    updateMode();
 }
 
-void PortalPanel::noteDragContent(const QMimeData *mime)
+/* ------------------------------------------------------------------------- */
+/* Window                                                                    */
+/* ------------------------------------------------------------------------- */
+
+void PortalPanel::popup()
 {
-    if (!mime) {
+    if (!m_window) {
+        return;
+    }
+    refreshLayout();
+    m_window->show();
+    m_window->raise();
+}
+
+void PortalPanel::dismiss()
+{
+    if (m_window) {
+        m_window->hide();
+    }
+}
+
+void PortalPanel::applyMargins()
+{
+    if (!m_window) {
+        return;
+    }
+#ifdef GXDE_HAVE_LAYERSHELLQT
+    if (isWayland()) {
+        if (auto *layer = LayerShellQt::Window::get(m_window)) {
+            layer->setMargins(QMargins(0, 0, m_rightMargin, m_bottomMargin));
+            /* set_margin only takes effect with the next surface commit:
+             * render a frame now, or the panel would lag behind the pointer */
+            m_window->update();
+            return;
+        }
+    }
+#endif
+    m_window->setPosition(cornerGeometry(m_window->size()).topLeft());
+}
+
+QRect PortalPanel::cornerGeometry(const QSize &size) const
+{
+    QScreen *scr = m_window->screen() ? m_window->screen() : QGuiApplication::primaryScreen();
+    if (!scr) {
+        return QRect(m_window->position(), size);
+    }
+    const QRect available = scr->availableGeometry();
+    return QRect(available.right() + 1 - size.width() - m_rightMargin,
+                 available.bottom() + 1 - size.height() - m_bottomMargin, size.width(),
+                 size.height());
+}
+
+void PortalPanel::resizeWindow(int width, int height)
+{
+    m_wantedSize = QSize(width, height);
+    if (!m_window || m_window->size() == m_wantedSize) {
+        return;
+    }
+    /* The window grows to the left when the window grid opens.  On X11 move
+     * and resize in one request, or the portal would jump away from under
+     * the drag for a frame; layer-shell keeps the corner by itself. */
+    if (isWayland()) {
+        m_window->resize(m_wantedSize);
+    } else {
+        m_window->setGeometry(cornerGeometry(m_wantedSize));
+    }
+}
+
+void PortalPanel::setBlurAreas(const QVariantList &areas, int radius)
+{
+    QList<QRect> rects;
+    for (const QVariant &area : areas) {
+        const QRect rect = area.toRectF().toAlignedRect();
+        if (!rect.isEmpty()) {
+            rects.append(rect);
+        }
+    }
+    if (rects == m_blurAreas && radius == m_blurRadius) {
+        return;
+    }
+    m_blurAreas = rects;
+    m_blurRadius = radius;
+    updateBlur();
+}
+
+void PortalPanel::updateBlur()
+{
+    if (!m_window || !m_window->isVisible() || m_blurAreas.isEmpty()) {
+        return;
+    }
+    if (bernese::window_effects::IsBlurBehindSupported()) {
+        bernese::window_effects::SetBlurBehind(m_window, m_blurAreas, m_blurRadius);
+    }
+}
+
+void PortalPanel::saveWindowState()
+{
+    Config *config = Config::instance();
+    config->set(QStringLiteral("panel/rightMargin"), m_rightMargin);
+    config->set(QStringLiteral("panel/bottomMargin"), m_bottomMargin);
+    config->set(QStringLiteral("panel/listHeight"), m_manualListHeight);
+    config->set(QStringLiteral("panel/fixedPosition"), m_fixedPosition);
+    config->set(QStringLiteral("panel/fixedSize"), m_fixedSize);
+    config->sync();
+}
+
+/*
+ * Moving and resizing by hand.
+ *
+ * The panel follows how far the pointer travelled since the press.
+ *
+ * X11: QCursor::pos() asks the server, so that travel is exact.
+ *
+ * Wayland: nobody tells a client where the pointer is on screen, and the
+ * surface-local positions move along with the panel.  zwp_relative_pointer_v1
+ * reports the motion itself, so the panel follows it on every event, and the
+ * compositor applies the new margin with the very next frame.
+ *
+ * Wayland without relative motion: follow the pointer step by step instead:
+ * move the panel by how far the pointer drifted from the spot it grabbed,
+ * then wait for that frame before taking the next step.  A step taken too
+ * early is undone by the next one, it can not run away.
+ */
+void PortalPanel::beginMove(qreal windowX, qreal windowY)
+{
+    if (m_fixedPosition || !m_window) {
+        return;
+    }
+    m_dragMode = 1;
+    m_dragStart = QCursor::pos();
+    m_dragStartRight = m_rightMargin;
+    m_dragStartBottom = m_bottomMargin;
+    m_grabPoint = QPointF(windowX, windowY);
+    m_stepPending = false;
+    m_followTravel = false;
+    m_dragClock.start();
+    if (isWayland()) {
+        m_travel->start();
+    }
+}
+
+void PortalPanel::beginResize(qreal windowX, qreal windowY)
+{
+    if (m_fixedSize || !m_window) {
+        return;
+    }
+    m_dragMode = 2;
+    m_dragStart = QCursor::pos();
+    m_resizeStartHeight = m_listHeight;
+    m_grabPoint = QPointF(windowX, windowY);
+    m_stepPending = false;
+    m_followTravel = false;
+    m_dragClock.start();
+    if (isWayland()) {
+        m_travel->start();
+    }
+}
+
+void PortalPanel::followPointer(const QPointF &travel)
+{
+    const QPoint delta = travel.toPoint();
+    if (m_dragMode == 2) {
+        /* anchored at the bottom: the top edge follows the pointer */
+        const int height = qMax(120, m_resizeStartHeight - delta.y());
+        if (height != m_manualListHeight) {
+            m_manualListHeight = height;
+            refreshLayout();
+        }
         return;
     }
 
+    /* keep the panel on screen; the relative pointer keeps reporting motion
+     * at the screen edge, so let the grab slide instead of piling it up */
+    const QScreen *scr = m_window->screen() ? m_window->screen() : QGuiApplication::primaryScreen();
+    const QSize room = scr ? scr->availableGeometry().size() - m_window->size() : QSize();
+    const int maxRight = qMax(0, room.width());
+    const int maxBottom = qMax(0, room.height());
+
+    const int wantRight = m_dragStartRight - delta.x();
+    const int wantBottom = m_dragStartBottom - delta.y();
+    const int right = qBound(0, wantRight, maxRight);
+    const int bottom = qBound(0, wantBottom, maxBottom);
+    m_dragStartRight += right - wantRight;
+    m_dragStartBottom += bottom - wantBottom;
+
+    if (right == m_rightMargin && bottom == m_bottomMargin) {
+        return;
+    }
+    m_rightMargin = right;
+    m_bottomMargin = bottom;
+    applyMargins();
+}
+
+void PortalPanel::updateMoveResize(qreal windowX, qreal windowY)
+{
+    if (m_dragMode == 0) {
+        return;
+    }
+
+    if (!isWayland()) {
+        followPointer(QCursor::pos() - m_dragStart);
+        return;
+    }
+
+    /* the relative pointer drives it (see the constructor); right after
+     * binding it give the compositor a moment before falling back */
+    if (m_travel->running() && (m_followTravel || m_dragClock.elapsed() < 150)) {
+        return;
+    }
+
+    /* the last step has not reached the screen yet: its events still use the
+     * old position (give up waiting if no frame comes) */
+    if (m_stepPending && m_stepClock.elapsed() < 80) {
+        return;
+    }
+    m_stepPending = false;
+
+    const QPoint step = (QPointF(windowX, windowY) - m_grabPoint).toPoint();
+    if (step.isNull()) {
+        return;
+    }
+    if (m_dragMode == 1) {
+        m_rightMargin = qMax(0, m_rightMargin - step.x());
+        m_bottomMargin = qMax(0, m_bottomMargin - step.y());
+        applyMargins();
+    } else {
+        /* anchored at the bottom: the top edge follows the pointer */
+        m_manualListHeight = qMax(120, m_listHeight - step.y());
+        refreshLayout();
+    }
+    m_stepPending = true;
+    m_stepClock.start();
+}
+
+void PortalPanel::endMoveResize()
+{
+    m_travel->stop();
+    m_followTravel = false;
+    if (m_dragMode != 0) {
+        m_dragMode = 0;
+        saveWindowState();
+    }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Portal                                                                    */
+/* ------------------------------------------------------------------------- */
+
+void PortalPanel::setPortalSuppressed(bool suppressed)
+{
+    if (suppressed) {
+        m_portalTimer->stop();
+    }
+    if (m_portalSuppressed != suppressed) {
+        m_portalSuppressed = suppressed;
+        Q_EMIT portalSuppressedChanged();
+    }
+}
+
+void PortalPanel::setCompositorPortalActive(bool active)
+{
+    if (!active) {
+        m_portalTimer->stop();
+    }
+    if (m_compositorPortalActive != active) {
+        m_compositorPortalActive = active;
+        Q_EMIT portalOpenChanged();
+    }
+}
+
+void PortalPanel::suppressPortalIfUnderCursor()
+{
+    if (!isVisible()) {
+        return;
+    }
+    /* the drag started on top of the panel: do not jump until it left */
+    const bool under = m_window->geometry().contains(QCursor::pos());
+    setPortalSuppressed(under);
+    if (under) {
+        m_suppressWatch->start();
+    } else {
+        m_suppressWatch->stop();
+    }
+}
+
+void PortalPanel::stopPortalSuppression()
+{
+    m_suppressWatch->stop();
+    setPortalSuppressed(false);
+}
+
+void PortalPanel::portalEntered()
+{
+    m_leaveTimer->stop();
+    if (!portalOpen() && !m_portalSuppressed && !m_portalTimer->isActive()) {
+        m_portalTimer->start();
+    }
+}
+
+void PortalPanel::portalLeft()
+{
+    m_portalTimer->stop();
+    if (m_session->active()) {
+        m_leaveTimer->start();
+    }
+}
+
+void PortalPanel::portalDropped()
+{
+    m_portalTimer->stop();
+    m_leaveTimer->stop();
+    m_session->cancel();
+    m_classifiedMime.clear();
+    if (!portalOpen()) {
+        Q_EMIT zoneMessage(tr("悬停在「传送门」上，再移动到目标窗口"));
+    }
+}
+
+void PortalPanel::openPortal()
+{
+    if (m_portalSuppressed || portalOpen()) {
+        return;
+    }
+
+    /* GXDE's own compositor flies the windows out (爆炸平铺) and forwards the
+     * drop itself.  Everywhere else (X11, treeland, other wlroots
+     * compositors) the windows get minimized and listed in a grid to the
+     * left of the portal. */
+    PortalClient *portal = PortalClient::instance();
+    if (portal->available()) {
+        QRect panelRect = m_window->geometry();
+        QScreen *scr = m_window->screen() ? m_window->screen() : QGuiApplication::primaryScreen();
+        if (scr && isWayland()) {
+            const QRect avail = scr->availableGeometry();
+            panelRect = QRect(avail.x() + avail.width() - m_window->width() - m_rightMargin,
+                              avail.y() + avail.height() - m_window->height() - m_bottomMargin,
+                              m_window->width(), m_window->height());
+        }
+        if (portal->beginPortal(panelRect)) {
+            setCompositorPortalActive(true);
+            Q_EMIT zoneMessage(tr("移动到目标窗口上松手"));
+        } else {
+            Q_EMIT zoneMessage(tr("当前无已打开的窗口"));
+        }
+        return;
+    }
+
+    if (!PortalSession::supported()) {
+        Q_EMIT zoneMessage(tr("当前环境不支持传送门"));
+        return;
+    }
+    if (m_session->begin()) {
+        Q_EMIT zoneMessage(tr("拖到左侧窗口图标上，激活该窗口"));
+    } else {
+        Q_EMIT zoneMessage(tr("当前无已打开的窗口"));
+    }
+}
+
+void PortalPanel::jumpTo(const QString &windowId)
+{
+    m_leaveTimer->stop();
+    if (!m_session->active()) {
+        return;
+    }
+    m_session->activate(windowId);
+    Q_EMIT zoneMessage(tr("继续拖到窗口里松手"));
+}
+
+/* ------------------------------------------------------------------------- */
+/* Drag and drop                                                             */
+/* ------------------------------------------------------------------------- */
+
+bool PortalPanel::isOwnDrag(QObject *mime) const
+{
+    auto *data = qobject_cast<QMimeData *>(mime);
+    return data && data->hasFormat(QLatin1String(kStagingMime));
+}
+
+void PortalPanel::noteDragContent(QObject *mime)
+{
+    auto *data = qobject_cast<QMimeData *>(mime);
+    if (!data || isOwnDrag(data)) {
+        return;
+    }
     m_factoryTimer->stop();
 
-    const DropContent content = ContentClassifier::classify(mime);
+    /* Reading a foreign drag's data is a round trip to its owner (and an
+     * image gets decoded): classify once per drag, not on every move. */
+    const QStringList formats = data->formats();
+    if (data == m_classifiedMime && formats == m_classifiedFormats) {
+        return;
+    }
+    m_classifiedMime = data;
+    m_classifiedFormats = formats;
+
+    const DropContent content = ContentClassifier::classify(data);
     if (!content.valid()) {
         return;
     }
-
-    if (m_factory->isVisible() && m_factory->hasContent() &&
-        m_factory->content().summary() == content.summary()) {
+    if (m_content.valid() && m_content.summary() == content.summary()) {
         return;
     }
-
-    m_factory->setContent(content);
+    setContent(content);
 }
 
 void PortalPanel::noteDragFinished()
 {
-    if (m_factoryTimer) {
-        m_factoryTimer->start();
+    m_factoryTimer->start();
+}
+
+void PortalPanel::dropOnStaging(QObject *mime, int row)
+{
+    auto *data = qobject_cast<QMimeData *>(mime);
+    if (!data) {
+        return;
+    }
+
+    if (isOwnDrag(data)) {
+        const QString id = QString::fromUtf8(data->data(QLatin1String(kStagingMime)));
+        int from = -1;
+        for (int i = 0; i < m_model->count(); ++i) {
+            const StagingItem *item = m_model->itemAt(i);
+            if (item && item->id == id) {
+                from = i;
+                break;
+            }
+        }
+        const int to = row >= 0 && row < m_model->count() ? row : m_model->count() - 1;
+        if (from >= 0 && to >= 0 && from != to) {
+            m_model->moveItem(from, to);
+        }
+        /* read back by startItemDrag(): a reorder must not consume the item */
+        data->setProperty("gxdeInternalMove", true);
+        return;
+    }
+
+    m_model->addMimeData(data);
+    m_classifiedMime.clear();
+    noteDragFinished();
+}
+
+void PortalPanel::dropOnAction(const QString &id, QObject *mime)
+{
+    auto *data = qobject_cast<QMimeData *>(mime);
+    const DropContent content = data ? ContentClassifier::classify(data) : DropContent();
+    if (content.valid()) {
+        runFactoryAction(id, content);
     }
 }
 
-void PortalPanel::toast(const QString &text)
+void PortalPanel::dropOnAsk(QObject *mime)
 {
-    if (!m_toast) {
+    auto *data = qobject_cast<QMimeData *>(mime);
+    if (!data) {
         return;
     }
-    m_toast->setText(text);
-    m_toast->adjustSize();
-    m_toast->move((width() - m_toast->width()) / 2, height() - m_toast->height() - 14);
-    m_toast->show();
-    m_toast->raise();
-    QTimer::singleShot(2600, m_toast, &QLabel::hide);
+    QStringList files;
+    for (const QUrl &url : data->urls()) {
+        if (url.isLocalFile()) {
+            files.append(url.toLocalFile());
+        }
+    }
+    Q_EMIT askWithContent(data->hasText() ? data->text() : QString(), files);
+}
+
+void PortalPanel::startItemDrag(int row)
+{
+    const StagingItem *item = m_model->itemAt(row);
+    if (!item) {
+        return;
+    }
+
+    const QString id = item->id;
+    const bool pinned = item->pinned;
+
+    auto *mime = new QMimeData;
+    mime->setData(QLatin1String(kStagingMime), id.toUtf8());
+    if (item->type == StagingItem::File || item->type == StagingItem::Image) {
+        if (!item->uri.isEmpty()) {
+            mime->setUrls({ QUrl::fromLocalFile(item->uri) });
+            mime->setText(item->uri);
+        }
+        if (item->type == StagingItem::Image) {
+            const QImage image(item->uri);
+            if (!image.isNull()) {
+                mime->setImageData(image);
+            }
+        }
+    } else {
+        mime->setText(item->text);
+    }
+
+    auto *drag = new QDrag(this);
+    drag->setMimeData(mime);
+    const QIcon icon = m_model->index(row).data(StagingModel::IconRole).value<QIcon>();
+    if (!icon.isNull()) {
+        drag->setPixmap(icon.pixmap(48, 48));
+    }
+
+    const Qt::DropAction action = drag->exec(Qt::CopyAction | Qt::MoveAction, Qt::CopyAction);
+    const bool internalMove = mime->property("gxdeInternalMove").toBool();
+    drag->deleteLater();
+    if (internalMove) {
+        return;
+    }
+
+    /* Dragging an item out of the staging area consumes it unless it is
+     * pinned.  A cancelled drag (Esc / dropped on nothing) keeps it. */
+    if (action != Qt::IgnoreAction && !pinned) {
+        for (int i = 0; i < m_model->count(); ++i) {
+            const StagingItem *current = m_model->itemAt(i);
+            if (current && current->id == id) {
+                m_model->removeRows(i, 1);
+                break;
+            }
+        }
+    }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Staging list                                                              */
+/* ------------------------------------------------------------------------- */
+
+void PortalPanel::toggleChecked(int row)
+{
+    if (const StagingItem *item = m_model->itemAt(row)) {
+        m_model->setChecked(row, !item->checked);
+    }
+}
+
+void PortalPanel::togglePinned(int row)
+{
+    if (const StagingItem *item = m_model->itemAt(row)) {
+        m_model->setPinned(row, !item->pinned);
+    }
+}
+
+void PortalPanel::removeItem(int row)
+{
+    if (row >= 0 && row < m_model->count()) {
+        m_model->removeRows(row, 1);
+    }
+}
+
+void PortalPanel::selectAll()
+{
+    for (int row = 0; row < m_model->count(); ++row) {
+        m_model->setChecked(row, true);
+    }
+}
+
+void PortalPanel::invertSelection()
+{
+    for (int row = 0; row < m_model->count(); ++row) {
+        if (const StagingItem *item = m_model->itemAt(row)) {
+            m_model->setChecked(row, !item->checked);
+        }
+    }
+}
+
+void PortalPanel::deleteChecked()
+{
+    for (int row = m_model->count() - 1; row >= 0; --row) {
+        const StagingItem *item = m_model->itemAt(row);
+        if (item && item->checked) {
+            m_model->removeRows(row, 1);
+        }
+    }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Menu                                                                      */
+/* ------------------------------------------------------------------------- */
+
+void PortalPanel::setFixedPosition(bool fixed)
+{
+    if (m_fixedPosition != fixed) {
+        m_fixedPosition = fixed;
+        saveWindowState();
+        Q_EMIT settingsChanged();
+    }
+}
+
+void PortalPanel::setFixedSize(bool fixed)
+{
+    if (m_fixedSize != fixed) {
+        m_fixedSize = fixed;
+        saveWindowState();
+        Q_EMIT settingsChanged();
+    }
+}
+
+bool PortalPanel::hideOnFullscreen() const
+{
+    return Config::instance()->getBool(QStringLiteral("panel/hideOnFullscreen"), false);
+}
+
+void PortalPanel::setHideOnFullscreen(bool hide)
+{
+    Config::instance()->set(QStringLiteral("panel/hideOnFullscreen"), hide);
+    Config::instance()->sync();
+    Q_EMIT settingsChanged();
+}
+
+bool PortalPanel::autostart() const
+{
+    return QFile::exists(slimyPath());
+}
+
+void PortalPanel::setAutostart(bool enable)
+{
+    const QString slimy = slimyPath();
+    QDir().mkpath(QFileInfo(slimy).absolutePath());
+    if (enable) {
+        QFile file(slimy);
+        if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            QTextStream out(&file);
+            out << "#!/bin/bash\n"
+                   "PID_DIR=\"${PID_DIR:-/tmp/GXDE/gxde-k9/}\"\n"
+                   "mkdir -p \"$PID_DIR\"\n"
+                   "PID_FILE=\"$PID_DIR/gxde-ai-see.pid\"\n"
+                   "if [ -f \"$PID_FILE\" ]; then\n"
+                   "  PID=$(cat \"$PID_FILE\" 2>/dev/null)\n"
+                   "  [ -n \"$PID\" ] && [ -e \"/proc/$PID\" ] && exit 0\n"
+                   "  rm -f \"$PID_FILE\"\n"
+                   "fi\n"
+                   "/usr/bin/gxde-ai-see --daemon >/dev/null 2>&1 &\n"
+                   "echo $! > \"$PID_FILE\"\n";
+            file.close();
+            file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+                                QFileDevice::ExeOwner);
+        }
+    } else {
+        QFile::remove(slimy);
+    }
+    Q_EMIT settingsChanged();
+    Q_EMIT toast(enable ? tr("已开启开机自启与保活") : tr("已关闭开机自启与保活"));
+}
+
+void PortalPanel::resetPosition()
+{
+    m_rightMargin = 16;
+    m_bottomMargin = 16;
+    applyMargins();
+    saveWindowState();
+}
+
+void PortalPanel::clearAll()
+{
+    m_model->clearAll();
+}
+
+void PortalPanel::requestHide()
+{
+    Q_EMIT hideRequested();
+}
+
+void PortalPanel::showAbout()
+{
+    showAboutDialog(nullptr, tr("传送门、内容工厂、待办与小埃同学对话。"));
+}
+
+void PortalPanel::quit()
+{
+    QCoreApplication::quit();
+}
+
+void PortalPanel::openChat()
+{
+    Q_EMIT openChatRequested();
+}
+
+/* ------------------------------------------------------------------------- */
+/* Content factory                                                           */
+/* ------------------------------------------------------------------------- */
+
+void PortalPanel::runAction(const QString &id)
+{
+    if (m_content.valid()) {
+        runFactoryAction(id, m_content);
+    }
 }
 
 void PortalPanel::showTextDialog(const QString &title, const QString &text)
 {
-    QMessageBox box(QMessageBox::Information, title, text.left(4000), QMessageBox::Ok, this);
+    QMessageBox box(QMessageBox::Information, title, text.left(4000), QMessageBox::Ok);
     QPushButton *copyButton = box.addButton(tr("复制"), QMessageBox::ActionRole);
     box.exec();
     if (box.clickedButton() == copyButton) {
         QApplication::clipboard()->setText(text);
-        toast(tr("已复制"));
+        Q_EMIT toast(tr("已复制"));
     }
 }
 
@@ -1122,7 +1009,7 @@ void PortalPanel::runFactoryAction(const QString &id, const DropContent &content
 {
     auto copyText = [this](const QString &text) {
         QApplication::clipboard()->setText(text);
-        toast(tr("已复制"));
+        Q_EMIT toast(tr("已复制"));
     };
 
     const QString link = content.link.url.toString();
@@ -1151,7 +1038,7 @@ void PortalPanel::runFactoryAction(const QString &id, const DropContent &content
         return;
     }
     if (id == QLatin1String("save_as")) {
-        Downloader::instance()->saveAs(content.link.url, this);
+        Downloader::instance()->saveAs(content.link.url, nullptr);
         return;
     }
     if (id == QLatin1String("copy")) {
@@ -1203,20 +1090,20 @@ void PortalPanel::runFactoryAction(const QString &id, const DropContent &content
         const QString text = content.kind == DropContent::Text ? content.text.left(500)
                                                                : content.summary();
         TodoModel::instance()->add(text);
-        toast(tr("已添加到待办"));
+        Q_EMIT toast(tr("已添加到待办"));
         Q_EMIT todoAdded();
         return;
     }
     if (id == QLatin1String("save_image")) {
         if (content.image.isNull()) {
-            toast(tr("没有可保存的图片"));
+            Q_EMIT toast(tr("没有可保存的图片"));
             return;
         }
         const QString path = QFileDialog::getSaveFileName(
-            this, tr("保存图片"), QStringLiteral("image.png"), tr("图片 (*.png *.jpg)"));
+            nullptr, tr("保存图片"), QStringLiteral("image.png"), tr("图片 (*.png *.jpg)"));
         if (!path.isEmpty()) {
             content.image.save(path);
-            toast(tr("已保存：%1").arg(path));
+            Q_EMIT toast(tr("已保存：%1").arg(path));
         }
         return;
     }
@@ -1225,310 +1112,14 @@ void PortalPanel::runFactoryAction(const QString &id, const DropContent &content
         return;
     }
     if (id == QLatin1String("translate")) {
-        toast(tr("翻译接口将在小埃同学接入后可用"));
+        Q_EMIT toast(tr("翻译接口将在小埃同学接入后可用"));
         return;
     }
     if (id == QLatin1String("ocr") || id == QLatin1String("describe") ||
         id == QLatin1String("transcribe")) {
-        toast(tr("该能力尚未接入 GXDE Daemon"));
+        Q_EMIT toast(tr("该能力尚未接入 GXDE Daemon"));
         return;
     }
 
-    toast(tr("未知操作：%1").arg(id));
+    Q_EMIT toast(tr("未知操作：%1").arg(id));
 }
-
-void PortalPanel::updateSelectionBar()
-{
-    if (!m_selectionBar) {
-        return;
-    }
-
-    bool anyChecked = false;
-    for (int row = 0; row < m_model->count(); ++row) {
-        const StagingItem *item = m_model->itemAt(row);
-        if (item && item->checked) {
-            anyChecked = true;
-            break;
-        }
-    }
-
-    if (m_selectionBar->isVisible() == anyChecked) {
-        return;
-    }
-
-    m_selectionBar->setVisible(anyChecked);
-    updateGeometryForContent();
-}
-
-void PortalPanel::popup()
-{
-    refreshLayout();
-    show();
-    raise();
-}
-
-void PortalPanel::dismiss()
-{
-    hide();
-}
-
-void PortalPanel::applyMargins()
-{
-#ifdef GXDE_HAVE_LAYERSHELLQT
-    if (QGuiApplication::platformName().startsWith(QLatin1String("wayland"))) {
-        if (auto *layer = LayerShellQt::Window::get(windowHandle())) {
-            layer->setMargins(
-                QMargins(0, 0, m_rightMargin, m_bottomMargin));
-            return;
-        }
-    }
-#endif
-    if (QScreen *scr = screen() ? screen() : QGuiApplication::primaryScreen()) {
-        const QRect available = scr->availableGeometry();
-        move(available.right() - width() - m_rightMargin,
-             available.bottom() - height() - m_bottomMargin);
-    }
-}
-
-void PortalPanel::saveWindowState()
-{
-    Config *config = Config::instance();
-    config->set(QStringLiteral("panel/rightMargin"), m_rightMargin);
-    config->set(QStringLiteral("panel/bottomMargin"), m_bottomMargin);
-    config->set(QStringLiteral("panel/listHeight"), m_manualListHeight);
-    config->set(QStringLiteral("panel/fixedPosition"), m_fixedPosition);
-    config->set(QStringLiteral("panel/fixedSize"), m_fixedSize);
-    config->sync();
-}
-
-void PortalPanel::mousePressEvent(QMouseEvent *event)
-{
-    if (event->button() != Qt::LeftButton) {
-        Dtk::Widget::DBlurEffectWidget::mousePressEvent(event);
-        return;
-    }
-
-    const QPoint pos = event->position().toPoint();
-    if (!m_fixedSize && pos.y() <= 10) {
-        m_dragMode = 2;
-        m_dragStart = pos;
-        m_resizeStartHeight = m_view->height();
-        event->accept();
-        return;
-    }
-    if (!m_fixedPosition) {
-        m_dragMode = 1;
-        m_dragStart = pos;
-        m_dragStartRight = m_rightMargin;
-        m_dragStartBottom = m_bottomMargin;
-        event->accept();
-        return;
-    }
-    Dtk::Widget::DBlurEffectWidget::mousePressEvent(event);
-}
-
-void PortalPanel::mouseMoveEvent(QMouseEvent *event)
-{
-    const QPoint pos = event->position().toPoint();
-
-    if (m_dragMode == 1) {
-        const QPoint delta = pos - m_dragStart;
-        m_rightMargin = qMax(0, m_dragStartRight - delta.x());
-        m_bottomMargin = qMax(0, m_dragStartBottom - delta.y());
-        applyMargins();
-        event->accept();
-        return;
-    }
-    if (m_dragMode == 2) {
-        const int delta = m_dragStart.y() - pos.y();
-        m_manualListHeight = qMax(120, m_resizeStartHeight + delta);
-        refreshLayout();
-        event->accept();
-        return;
-    }
-
-    if (!m_fixedSize && pos.y() <= 10) {
-        setCursor(Qt::SizeVerCursor);
-    } else if (!m_fixedPosition && pos.x() <= 10) {
-        setCursor(Qt::SizeAllCursor);
-    } else {
-        unsetCursor();
-    }
-    Dtk::Widget::DBlurEffectWidget::mouseMoveEvent(event);
-}
-
-void PortalPanel::mouseReleaseEvent(QMouseEvent *event)
-{
-    if (m_dragMode != 0) {
-        m_dragMode = 0;
-        saveWindowState();
-        event->accept();
-        return;
-    }
-    Dtk::Widget::DBlurEffectWidget::mouseReleaseEvent(event);
-}
-
-void PortalPanel::contextMenuEvent(QContextMenuEvent *event)
-{
-    showContextMenu(event->globalPos());
-    event->accept();
-}
-
-void PortalPanel::showContextMenu(const QPoint &globalPos)
-{
-    QMenu menu(this);
-
-    QAction *fixedPosition = menu.addAction(tr("固定位置"));
-    fixedPosition->setCheckable(true);
-    fixedPosition->setChecked(m_fixedPosition);
-
-    QAction *resetPosition = menu.addAction(tr("恢复默认位置"));
-
-    QAction *fixedSize = menu.addAction(tr("固定大小"));
-    fixedSize->setCheckable(true);
-    fixedSize->setChecked(m_fixedSize);
-
-    QAction *autoHideFullscreen = menu.addAction(tr("全屏时隐藏"));
-    autoHideFullscreen->setCheckable(true);
-    autoHideFullscreen->setChecked(
-        Config::instance()->getBool(QStringLiteral("panel/hideOnFullscreen"), false));
-
-    menu.addSeparator();
-
-    const QString slimy = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) +
-                          QStringLiteral("/GXDE/gxde-k9/slimy/gxde-ai-see.slimy");
-    QAction *autostart = menu.addAction(tr("开机自启与后台保活"));
-    autostart->setCheckable(true);
-    autostart->setChecked(QFile::exists(slimy));
-
-    menu.addSeparator();
-    QAction *clear = menu.addAction(tr("清空暂存区"));
-    QAction *hide = menu.addAction(tr("隐藏"));
-    QAction *about = menu.addAction(tr("关于"));
-    QAction *quit = menu.addAction(tr("退出"));
-
-    menu.ensurePolished();
-    const QSize menuSize = menu.sizeHint();
-    QPoint menuPos = globalPos;
-    QScreen *scr = screen() ? screen() : QGuiApplication::primaryScreen();
-    if (scr) {
-        const QRect available = scr->availableGeometry();
-        if (menuPos.y() + menuSize.height() > available.bottom()) {
-            menuPos.setY(globalPos.y() - menuSize.height());
-        }
-        if (menuPos.y() < available.top()) {
-            menuPos.setY(available.top());
-        }
-        if (menuPos.x() + menuSize.width() > available.right()) {
-            menuPos.setX(available.right() - menuSize.width());
-        }
-    }
-    menuPos.setX(globalPos.x() - menuSize.width() - 10);
-    if (scr) {
-        const QRect available = scr->availableGeometry();
-        if (menuPos.x() < available.left()) {
-            menuPos.setX(available.left());
-        }
-    }
-    QAction *chosen = menu.exec(menuPos);
-    if (!chosen) {
-        return;
-    }
-
-    if (chosen == hide) {
-        Q_EMIT hideRequested();
-        return;
-    }
-    if (chosen == fixedPosition) {
-        m_fixedPosition = fixedPosition->isChecked();
-        saveWindowState();
-    } else if (chosen == resetPosition) {
-        m_rightMargin = 16;
-        m_bottomMargin = 16;
-        applyMargins();
-        saveWindowState();
-    } else if (chosen == fixedSize) {
-        m_fixedSize = fixedSize->isChecked();
-        saveWindowState();
-    } else if (chosen == autoHideFullscreen) {
-        Config::instance()->set(QStringLiteral("panel/hideOnFullscreen"),
-                                autoHideFullscreen->isChecked());
-        Config::instance()->sync();
-    } else if (chosen == autostart) {
-        const bool enable = autostart->isChecked();
-        QDir().mkpath(QFileInfo(slimy).absolutePath());
-        if (enable) {
-            QFile file(slimy);
-            if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-                QTextStream out(&file);
-                out << "#!/bin/bash\n"
-                       "PID_DIR=\"${PID_DIR:-/tmp/GXDE/gxde-k9/}\"\n"
-                       "mkdir -p \"$PID_DIR\"\n"
-                       "PID_FILE=\"$PID_DIR/gxde-ai-see.pid\"\n"
-                       "if [ -f \"$PID_FILE\" ]; then\n"
-                       "  PID=$(cat \"$PID_FILE\" 2>/dev/null)\n"
-                       "  [ -n \"$PID\" ] && [ -e \"/proc/$PID\" ] && exit 0\n"
-                       "  rm -f \"$PID_FILE\"\n"
-                       "fi\n"
-                       "/usr/bin/gxde-ai-see --daemon >/dev/null 2>&1 &\n"
-                       "echo $! > \"$PID_FILE\"\n";
-                file.close();
-                file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner |
-                                    QFileDevice::ExeOwner);
-            }
-        } else {
-            QFile::remove(slimy);
-        }
-        toast(enable ? tr("已开启开机自启与保活") : tr("已关闭开机自启与保活"));
-    } else if (chosen == clear) {
-        m_model->clearAll();
-    } else if (chosen == about) {
-        showAboutDialog(nullptr, tr("传送门、内容工厂、待办与小埃同学对话。"));
-    } else if (chosen == quit) {
-        QCoreApplication::quit();
-    }
-}
-
-void PortalPanel::suppressPortalIfUnderCursor()
-{
-    if (!m_zone || !isVisible()) {
-        return;
-    }
-    const bool under = m_zone->rect().contains(m_zone->mapFromGlobal(QCursor::pos()));
-    m_zone->setSuppressPortal(under);
-    if (under) {
-        m_suppressWatch->start();
-    } else {
-        m_suppressWatch->stop();
-    }
-}
-
-void PortalPanel::stopPortalSuppression()
-{
-    if (m_suppressWatch) {
-        m_suppressWatch->stop();
-    }
-    if (m_zone) {
-        m_zone->setSuppressPortal(false);
-    }
-}
-
-void PortalPanel::showEvent(QShowEvent *event)
-{
-    Dtk::Widget::DBlurEffectWidget::showEvent(event);
-    refreshLayout();
-    applyMargins();
-
-    if (!QGuiApplication::platformName().startsWith(QLatin1String("wayland"))) {
-        QScreen *scr = screen();
-        if (!scr) {
-            scr = QGuiApplication::primaryScreen();
-        }
-        if (scr) {
-            const QRect available = scr->availableGeometry();
-            move(available.right() - width() - 16, available.bottom() - height() - 16);
-        }
-    }
-}
-
-#include "portalpanel.moc"
