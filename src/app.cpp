@@ -35,8 +35,22 @@ bool App::init(bool daemon, bool forceShow, bool showTodo, bool showChat)
     QLocalSocket probe;
     probe.connectToServer(serverName);
     if (probe.waitForConnected(200)) {
-        probe.write(showChat ? "chat" : (showTodo ? "todo" : "show"));
-        probe.waitForBytesWritten(200);
+        /* Another instance owns the service: forward only what this command
+         * line actually asked for.  A plain --daemon launch (k9 autostart, or
+         * a second manual start) must stay silent, otherwise it would toggle
+         * and pin the panel of the running instance. */
+        QByteArray request;
+        if (showChat) {
+            request = "chat";
+        } else if (showTodo) {
+            request = "todo";
+        } else if (forceShow || !daemon) {
+            request = "show";
+        }
+        if (!request.isEmpty()) {
+            probe.write(request);
+            probe.waitForBytesWritten(200);
+        }
         probe.disconnectFromServer();
         return false;
     }

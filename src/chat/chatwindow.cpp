@@ -750,10 +750,12 @@ void ChatWindow::setupUi()
     brandRow->setSpacing(10);
     auto *logo = new QLabel(sidebarPane);
     logo->setFixedSize(34, 34);
-    const qreal ratio = logo->devicePixelRatioF();
-    QPixmap logoPixmap = QApplication::windowIcon().pixmap(
-        QSize(qRound(34 * ratio), qRound(34 * ratio)));
-    logoPixmap.setDevicePixelRatio(ratio);
+    /* QIcon::pixmap() already applies the screen's device pixel ratio, so at
+     * fractional scale factors (1.25, 1.5) the result is larger than the label
+     * unless the ratio is normalised to the label's logical size — otherwise
+     * the bottom/right edge of the icon is clipped away. */
+    QPixmap logoPixmap = QApplication::windowIcon().pixmap(QSize(34, 34));
+    logoPixmap.setDevicePixelRatio(logoPixmap.width() / 34.0);
     logo->setPixmap(logoPixmap);
     logo->setStyleSheet(QStringLiteral("border-radius: 8px;"));
     brandRow->addWidget(logo);
