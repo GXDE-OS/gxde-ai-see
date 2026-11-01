@@ -1,3 +1,17 @@
+gxde-ai-see (1.0.0~beta5) unstable; urgency=medium
+
+  * 传送门：面板按需显示，打开 chat/待办不再自动弹出；右键菜单渲染在面板表面内，
+    避免 layer-shell 置顶遮挡
+  * 小埃同学对话：支持文件/图片/超长文字（>1000 字）附件；图片经 DeepSeek Files
+    API 上传并以 file_id 引用，文本附件内联；附件持久化并在气泡中展示
+  * 传送门服务默认开机自启并由 gxde-k9 保活；面板菜单合并为「服务启动/关闭」，
+    关闭时取消自启/保活、停用传送门并提示可在 chat 设置重新打开；chat 设置新增开关
+  * 内容工厂的分词/朗读/结果窗口与文件选择改用 DTK 控件
+  * 小埃同学图标去掉蓝色背景，改为透明
+  * 新增 service/attachment/UI/dialog 测试；英文翻译补齐
+
+ -- shenmo <shenmo@spark-app.store>  Sun, 01 Nov 2026 10:45:00 +0800
+
 gxde-ai-see (1.0.0~beta3) unstable; urgency=medium
 
   * 对话窗口支持浅色/深色主题跟随 DTK（ChatTheme 双套调色板）

@@ -1,5 +1,23 @@
 # 更新日志
 
+## 1.0.0~beta5 — 2026-11-01
+
+- 传送门面板改为按需显示：`--chat` / `--todo` 冷启动不再顺带弹出面板；没有拖拽、
+  暂存区为空且用户未从桌面切换时保持隐藏 · shenmo <shenmo@spark-app.store>
+- 传送门右键菜单改为渲染在面板表面内部（对齐主分支的 QML `Popup.Item` 方案），
+  不再被 layer-shell 置顶遮挡 · shenmo <shenmo@spark-app.store>
+- 小埃同学对话支持附件：拖入文件 / 图片 / 超长文字（>1000 字）自动转为附件；图片走
+  DeepSeek Files API 上传并以 `file_id` 引用，文本附件内联进提示词；附件持久化并在气泡中
+  展示 · shenmo <shenmo@spark-app.store>
+- 传送门服务默认开机自启并由 gxde-k9 保活；面板菜单的「开机自启与后台保活」「退出」
+  合并为「服务启动/关闭」。关闭时移除自启与保活、停用传送门并提示可到 Chat 设置重新打开
+  · shenmo <shenmo@spark-app.store>
+- 小埃同学 Chat 设置新增「启用传送门服务（开机自启与后台保活）」开关
+  · shenmo <shenmo@spark-app.store>
+- 内容工厂的分词、朗读、文本结果窗口与文件选择改用 DTK 控件（DDialog / DTextEdit /
+  DSlider / DFileDialog） · shenmo <shenmo@spark-app.store>
+- 小埃同学图标去掉蓝色背景，改为透明背景 · shenmo <shenmo@spark-app.store>
+
 ## 1.0.0~beta3 — 2026-10-31
 
 - 对话窗口支持浅色 / 深色主题跟随 DTK：新增 `ChatTheme` 双套调色板，
