@@ -1651,7 +1651,7 @@ void ChatWindow::handleAnchor(const QUrl &url)
 
 void ChatWindow::showAbout()
 {
-    showAboutDialog(this, tr("GXDE 桌面的 AI 助手：传送门、内容工厂、待办与对话。"));
+    showAboutDialog(tr("GXDE 桌面的 AI 助手：传送门、内容工厂、待办与对话。"));
 }
 
 void ChatWindow::appendError(const QString &message)

@@ -1666,7 +1666,7 @@ void PortalPanel::applyContextMenuAction(const QString &id)
     } else if (id == QLatin1String("clear")) {
         m_model->clearAll();
     } else if (id == QLatin1String("about")) {
-        showAboutDialog(nullptr, tr("传送门、内容工厂、待办与小埃同学对话。"));
+        showAboutDialog(tr("传送门、内容工厂、待办与小埃同学对话。"));
     }
 }
 

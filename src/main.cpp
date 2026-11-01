@@ -10,6 +10,7 @@
 #include <QTranslator>
 
 #include "app.h"
+#include "ui/aboutdialog.h"
 
 DWIDGET_USE_NAMESPACE
 
@@ -26,6 +27,16 @@ int main(int argc, char *argv[])
     }
     app.setWindowIcon(appIcon);
     app.setQuitOnLastWindowClosed(false);
+
+    /* Metadata for the stock about dialog that the DTK titlebar hamburger menu
+     * opens.  Without it DTK shows a tiny, empty dialog. */
+    app.setProductName(QStringLiteral("GXDE 小埃同学"));
+    app.setProductIcon(appIcon);
+    app.setApplicationDescription(
+        QStringLiteral("GXDE 桌面的 AI 助手：传送门、内容工厂、待办与小埃同学对话。"));
+    app.setApplicationLicense(QStringLiteral("GPL-3.0-or-later"));
+    app.setApplicationHomePage(QStringLiteral("https://gitee.com/GXDE-OS/gxde-ai-see"));
+    setupAboutDialog();
 
     const QString locale = QLocale::system().name();
     auto *translator = new QTranslator(&app);

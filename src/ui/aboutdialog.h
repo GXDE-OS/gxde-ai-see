@@ -5,7 +5,8 @@
 
 #include <QString>
 
-class QWidget;
+/** Creates the application-wide about dialog that DTK's titlebar menu opens. */
+void setupAboutDialog();
 
 /** DTK native about dialog shared by the panel and the chat window. */
-void showAboutDialog(QWidget *parent, const QString &description);
+void showAboutDialog(const QString &description);
