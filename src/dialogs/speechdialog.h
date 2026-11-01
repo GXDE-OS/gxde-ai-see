@@ -3,16 +3,16 @@
 
 #pragma once
 
-#include <QDialog>
+#include <DDialog>
+#include <DLabel>
+#include <dslider.h>
+#include <dtextedit.h>
 #include <QString>
 
-class QLabel;
-class QPlainTextEdit;
 class QProcess;
-class QSlider;
 
-/** Text-to-speech dialog with a rate control. */
-class SpeechDialog : public QDialog
+/** Text-to-speech dialog with a rate control (DTK dialog). */
+class SpeechDialog : public Dtk::Widget::DDialog
 {
     Q_OBJECT
 
@@ -25,8 +25,8 @@ private:
     void stop();
 
     QString m_text;
-    QPlainTextEdit *m_preview = nullptr;
-    QSlider *m_rate = nullptr;
-    QLabel *m_status = nullptr;
+    Dtk::Widget::DTextEdit *m_preview = nullptr;
+    Dtk::Widget::DSlider *m_rate = nullptr;
+    Dtk::Widget::DLabel *m_status = nullptr;
     QProcess *m_process = nullptr;
 };

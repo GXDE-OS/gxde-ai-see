@@ -148,19 +148,92 @@ public:
                                              : palette.bubbleAssistant)));
         auto *bubbleLayout = new QVBoxLayout(bubble);
         bubbleLayout->setContentsMargins(13, 9, 13, 9);
-        bubbleLayout->setSpacing(0);
+        bubbleLayout->setSpacing(message.attachments.isEmpty() ? 0 : 6);
+
+        if (!message.attachments.isEmpty()) {
+            QVector<const ChatAttachment *> images;
+            QVector<const ChatAttachment *> files;
+            for (const ChatAttachment &attachment : message.attachments) {
+                if (attachment.isImage()) {
+                    images.append(&attachment);
+                } else {
+                    files.append(&attachment);
+                }
+            }
+
+            QColor chipBackground = palette.bubbleUserText;
+            chipBackground.setAlphaF(0.10);
+
+            if (!images.isEmpty()) {
+                auto *imageRow = new QHBoxLayout;
+                imageRow->setContentsMargins(0, 0, 0, 0);
+                imageRow->setSpacing(6);
+                const int shown = qMin(images.size(), 3);
+                for (int i = 0; i < shown; ++i) {
+                    const ChatAttachment *attachment = images.at(i);
+                    auto *thumb = new QLabel(bubble);
+                    thumb->setFixedSize(96, 72);
+                    thumb->setAlignment(Qt::AlignCenter);
+                    thumb->setToolTip(attachment->name);
+                    const QPixmap picture(attachment->path);
+                    if (!picture.isNull()) {
+                        thumb->setPixmap(picture.scaled(96, 72, Qt::KeepAspectRatioByExpanding,
+                                                        Qt::SmoothTransformation));
+                    } else {
+                        thumb->setText(tr("图片"));
+                        thumb->setStyleSheet(
+                            QStringLiteral("QLabel { color: %1; background: %2;"
+                                           " border-radius: 7px; font-size: 11px; }")
+                                .arg(ChatTheme::css(palette.bubbleUserText),
+                                     ChatTheme::css(chipBackground)));
+                    }
+                    imageRow->addWidget(thumb);
+                }
+                if (images.size() > shown) {
+                    auto *more = new QLabel(tr("+%1").arg(images.size() - shown), bubble);
+                    more->setStyleSheet(QStringLiteral("color: %1; font-size: 11px;")
+                                            .arg(ChatTheme::css(palette.bubbleUserText)));
+                    imageRow->addWidget(more);
+                }
+                imageRow->addStretch();
+                bubbleLayout->addLayout(imageRow);
+            }
+
+            for (const ChatAttachment *attachment : files) {
+                auto *chip = new QLabel(bubble);
+                chip->setTextFormat(Qt::RichText);
+                chip->setWordWrap(true);
+                chip->setMaximumWidth(kBubbleMaxWidth);
+                const QString meta = attachment->kind == ChatAttachment::Text
+                    ? tr("长文本 · %1 字").arg(attachment->text.size())
+                    : AttachmentUtils::displaySize(attachment->size);
+                chip->setText(
+                    QStringLiteral("<b>%1</b><br/><span style=\"color:%2; font-size:10px;\">%3</span>")
+                        .arg(attachment->name.toHtmlEscaped(),
+                             ChatTheme::css(palette.bubbleUserText), meta));
+                chip->setStyleSheet(
+                    QStringLiteral("QLabel { background: %1; color: %2;"
+                                   " border-radius: 7px; padding: 5px 8px; font-size: 12px; }")
+                        .arg(ChatTheme::css(chipBackground),
+                             ChatTheme::css(palette.bubbleUserText)));
+                chip->setToolTip(attachment->path);
+                bubbleLayout->addWidget(chip);
+            }
+        }
 
         if (m_isUser) {
-            auto *label = new QLabel(bubble);
-            label->setTextFormat(Qt::RichText);
-            label->setWordWrap(true);
-            label->setTextInteractionFlags(Qt::TextSelectableByMouse);
-            label->setMaximumWidth(kBubbleMaxWidth);
-            label->setStyleSheet(QStringLiteral("QLabel { color: %1; font-size: 13px; }")
-                                     .arg(ChatTheme::css(palette.bubbleUserText)));
-            label->setText(escapedHtml(message.content));
-            m_label = label;
-            bubbleLayout->addWidget(label);
+            if (!message.content.isEmpty() || message.attachments.isEmpty()) {
+                auto *label = new QLabel(bubble);
+                label->setTextFormat(Qt::RichText);
+                label->setWordWrap(true);
+                label->setTextInteractionFlags(Qt::TextSelectableByMouse);
+                label->setMaximumWidth(kBubbleMaxWidth);
+                label->setStyleSheet(QStringLiteral("QLabel { color: %1; font-size: 13px; }")
+                                         .arg(ChatTheme::css(palette.bubbleUserText)));
+                label->setText(escapedHtml(message.content));
+                m_label = label;
+                bubbleLayout->addWidget(label);
+            }
         } else {
             m_body = new BubbleText(bubble);
             m_body->setContent(markdownToHtml(message.content));

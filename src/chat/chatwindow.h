@@ -4,6 +4,7 @@
 #pragma once
 
 #include <QJsonArray>
+#include <QSet>
 #include <QVector>
 #include <DMainWindow>
 #include <QWidget>
@@ -18,6 +19,16 @@ class QFrame;
 class ChatMessageList;
 class QMimeData;
 class QUrl;
+class QToolButton;
+class QTimer;
+class QDragEnterEvent;
+class QDragMoveEvent;
+class QDragLeaveEvent;
+class QDropEvent;
+class QResizeEvent;
+class AttachmentUploader;
+class ChatInput;
+class FlowLayout;
 
 struct ChatConversation
 {
@@ -47,12 +58,20 @@ public:
     /** New conversation pre-filled from a portal drop on the ask tile. */
     void startConversationWith(const QString &text, const QStringList &files);
 
+    /** Open the chat settings dialog (used when the portal service is off). */
+    void showSettings();
+
     /** Insert dropped content into the input of the current/new conversation. */
     void handleDroppedMime(const QMimeData *mime);
     void handleDropOnConversation(int index, const QMimeData *mime);
 
 protected:
     void showEvent(QShowEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dragMoveEvent(QDragMoveEvent *event) override;
+    void dragLeaveEvent(QDragLeaveEvent *event) override;
+    void dropEvent(QDropEvent *event) override;
 
 private:
     void setupUi();
@@ -83,14 +102,28 @@ private:
     void appendError(const QString &message);
     int currentIndex() const { return m_current; }
 
+    /* attachments */
+    void addAttachment(const ChatAttachment &attachment);
+    void addAttachmentFromFile(const QString &path);
+    void openAttachmentPicker();
+    void removeAttachment(const QString &id);
+    void startUpload(const ChatAttachment &attachment);
+    void updateAttachmentBar();
+    void updateSendState();
+    void syncAttachmentBarHeight();
+    void showTransientStatus(const QString &text, int milliseconds = 4000);
+    bool waitingForUploads() const;
+    void insertInputText(const QString &text);
+
     QListWidget *m_sidebar = nullptr;
     ChatMessageList *m_messages = nullptr;
     QLabel *m_titleLabel = nullptr;
     QLabel *m_modelLabel = nullptr;
-    QPlainTextEdit *m_input = nullptr;
+    ChatInput *m_input = nullptr;
     QPushButton *m_sendButton = nullptr;
     QLabel *m_status = nullptr;
     ChatClient *m_client = nullptr;
+    AttachmentUploader *m_uploader = nullptr;
 
     /* themed chrome, restyled by applyTheme() */
     QWidget *m_sidebarPane = nullptr;
@@ -100,9 +133,18 @@ private:
     QLabel *m_brand = nullptr;
     QLabel *m_brandSub = nullptr;
     QLabel *m_hint = nullptr;
+    QString m_hintDefault;
     QPushButton *m_newButton = nullptr;
     QPushButton *m_settingsButton = nullptr;
     QPushButton *m_menuButton = nullptr;
+    QToolButton *m_attachButton = nullptr;
+    QWidget *m_attachmentBar = nullptr;
+    FlowLayout *m_attachmentLayout = nullptr;
+    QTimer *m_statusTimer = nullptr;
+
+    QVector<ChatAttachment> m_pendingAttachments;
+    QSet<QString> m_uploading;
+    bool m_sendAfterUploads = false;
 
     QVector<ChatConversation> m_conversations;
     int m_current = -1;

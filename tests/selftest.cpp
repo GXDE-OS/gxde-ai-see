@@ -5,11 +5,18 @@
 
 #include <QCoreApplication>
 #include <QDebug>
+#include <QDir>
+#include <QFile>
+#include <QImage>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QTemporaryDir>
 #include <QTextStream>
 #include <QTranslator>
 #include <QtMath>
 
 #include "actions/texttools.h"
+#include "chat/attachment.h"
 #include "chat/chattheme.h"
 #include "factory/contentclassifier.h"
 #include "factory/factoryactions.h"
@@ -223,6 +230,100 @@ int main(int argc, char *argv[])
           "opaque colour serialised as hex");
     check(ChatTheme::css(QColor(0, 0, 0, 128)) == QStringLiteral("rgba(0,0,0,50%)"),
           "translucent colour serialised as rgba percentage");
+
+    // chat attachments
+    check(AttachmentUtils::isLongText(
+              QString(AttachmentUtils::kLongTextThreshold + 1, QLatin1Char('x'))),
+          "text above the threshold is a long-text attachment");
+    check(!AttachmentUtils::isLongText(
+              QString(AttachmentUtils::kLongTextThreshold, QLatin1Char('x'))),
+          "text at the threshold stays in the input");
+    check(!AttachmentUtils::isLongText(QStringLiteral("short message")),
+          "short text stays in the input");
+
+    const ChatAttachment longText = AttachmentUtils::fromText(QString(5000, QChar(0x5B57)));
+    check(longText.kind == ChatAttachment::Text && longText.text.size() == 5000,
+          "long-text attachment keeps its content");
+    check(longText.name.endsWith(QStringLiteral(".txt")),
+          "long-text attachment gets a .txt name");
+
+    QTemporaryDir attachmentDir;
+    check(attachmentDir.isValid(), "temporary dir for attachment files");
+    const QString textPath = attachmentDir.path() + QStringLiteral("/note.md");
+    {
+        QFile file(textPath);
+        check(file.open(QIODevice::WriteOnly), "create markdown attachment fixture");
+        file.write(QStringLiteral("# hello\n内容").toUtf8());
+    }
+    const ChatAttachment textFile = AttachmentUtils::fromFile(
+        textPath, attachmentDir.path() + QStringLiteral("/store"));
+    check(textFile.kind == ChatAttachment::File, "markdown file stays a file attachment");
+    check(textFile.text.contains(QStringLiteral("hello")) &&
+              textFile.text.contains(QStringLiteral("内容")),
+          "text file content extracted");
+    const QString textPrompt =
+        AttachmentUtils::promptText(QStringLiteral("问题"), { textFile });
+    check(textPrompt.contains(QStringLiteral("note.md")) &&
+              textPrompt.contains(QStringLiteral("hello")),
+          "text file inlined into the prompt");
+
+    QImage testImage(64, 48, QImage::Format_ARGB32);
+    testImage.fill(QColor(10, 20, 30));
+    const QString imagePath = attachmentDir.path() + QStringLiteral("/pic.png");
+    check(testImage.save(imagePath), "test image saved");
+    const ChatAttachment imageFile = AttachmentUtils::fromFile(
+        imagePath, attachmentDir.path() + QStringLiteral("/store"));
+    check(imageFile.kind == ChatAttachment::Image, "image file classified as image");
+    check(imageFile.path != imagePath && QFile::exists(imageFile.path),
+          "image copied into the attachment store");
+    check(imageFile.mimeType == QStringLiteral("image/png"), "image mime detected");
+
+    const QJsonValue plainPayload =
+        AttachmentUtils::contentJson(QStringLiteral("问题"), { textFile });
+    check(plainPayload.isString() &&
+              plainPayload.toString().contains(QStringLiteral("问题")),
+          "text-only messages keep a string payload");
+
+    ChatAttachment uploadedImage = imageFile;
+    uploadedImage.fileId = QStringLiteral("file-api-test");
+    const QJsonArray uploadedBlocks =
+        AttachmentUtils::contentJson(QStringLiteral("描述"), { uploadedImage }).toArray();
+    bool hasFileBlock = false;
+    for (const QJsonValue &value : uploadedBlocks) {
+        const QJsonObject block = value.toObject();
+        if (block.value(QStringLiteral("type")).toString() == QStringLiteral("file") &&
+            block.value(QStringLiteral("file_id")).toString() ==
+                QStringLiteral("file-api-test")) {
+            hasFileBlock = true;
+        }
+    }
+    check(hasFileBlock, "uploaded image referenced by file_id");
+
+    const QJsonArray inlineBlocks =
+        AttachmentUtils::contentJson(QString(), { imageFile }).toArray();
+    bool hasDataUrl = false;
+    for (const QJsonValue &value : inlineBlocks) {
+        const QJsonObject block = value.toObject();
+        if (block.value(QStringLiteral("type")).toString() ==
+            QStringLiteral("image_url")) {
+            hasDataUrl = block.value(QStringLiteral("image_url"))
+                             .toObject()
+                             .value(QStringLiteral("url"))
+                             .toString()
+                             .startsWith(QStringLiteral("data:image/png;base64,"));
+        }
+    }
+    check(hasDataUrl, "image without a file id falls back to an inline data URL");
+    bool imageNameInText = false;
+    for (const QJsonValue &value : inlineBlocks) {
+        const QJsonObject block = value.toObject();
+        if (block.value(QStringLiteral("type")).toString() == QStringLiteral("text")) {
+            imageNameInText = block.value(QStringLiteral("text"))
+                                  .toString()
+                                  .contains(imageFile.name);
+        }
+    }
+    check(imageNameInText, "image-only messages still carry a text block");
 
     QTextStream(stdout) << (failures == 0 ? "ALL PASS\n" : "FAILURES\n");
     return failures == 0 ? 0 : 1;

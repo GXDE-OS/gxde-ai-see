@@ -6,46 +6,58 @@
 #include "flowlayout.h"
 
 #include <QApplication>
-#include <QPalette>
 #include <QClipboard>
 #include <QEvent>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QMouseEvent>
+#include <QPalette>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QStyle>
 #include <QVBoxLayout>
 
+#include <DLabel>
+#include <DPushButton>
+
 SegmentDialog::SegmentDialog(const QStringList &words, QWidget *parent)
-    : QDialog(parent)
+    : Dtk::Widget::DDialog(parent)
 {
-    setWindowTitle(tr("分词"));
+    setTitle(tr("分词"));
     setAttribute(Qt::WA_DeleteOnClose);
-    resize(560, 420);
 
     const bool dark = palette().color(QPalette::Window).lightness() < 128;
     const QColor capsuleBg = dark ? QColor(255, 255, 255, 20) : QColor(0, 0, 0, 18);
     const QColor capsuleBorder = dark ? QColor(255, 255, 255, 30) : QColor(0, 0, 0, 28);
     const QColor textColor = palette().color(QPalette::WindowText);
 
-    auto *layout = new QVBoxLayout(this);
-    layout->setContentsMargins(16, 14, 16, 14);
+    auto *content = new QWidget;
+    content->setMinimumWidth(500);
+    auto *layout = new QVBoxLayout(content);
+    layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(10);
 
-    auto *hint = new QLabel(tr("按住并滑过词语可以连续选择，选中后复制。"), this);
+    auto *hint = new Dtk::Widget::DLabel(tr("按住并滑过词语可以连续选择，选中后复制。"), content);
     hint->setStyleSheet(QStringLiteral("font-size: 12px;"));
     layout->addWidget(hint);
 
-    auto *scroll = new QScrollArea(this);
+    auto *scroll = new QScrollArea(content);
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setStyleSheet(
+        QStringLiteral("QScrollArea { background: transparent; border: none; }"));
+    scroll->viewport()->setAutoFillBackground(false);
+    scroll->viewport()->setStyleSheet(QStringLiteral("background: transparent;"));
     auto *container = new QWidget(scroll);
+    container->setStyleSheet(QStringLiteral("background: transparent;"));
     auto *flow = new FlowLayout(container, 6, 6);
     container->setLayout(flow);
     scroll->setWidget(container);
+    scroll->setMinimumHeight(220);
     layout->addWidget(scroll, 1);
 
     for (const QString &word : words) {
-        auto *capsule = new QPushButton(word, container);
+        auto *capsule = new Dtk::Widget::DPushButton(word, container);
         capsule->setCheckable(true);
         capsule->setCursor(Qt::PointingHandCursor);
         capsule->setFocusPolicy(Qt::NoFocus);
@@ -70,31 +82,34 @@ SegmentDialog::SegmentDialog(const QStringList &words, QWidget *parent)
         m_capsules.append(capsule);
     }
 
-    auto *bottom = new QHBoxLayout;
-    auto *all = new QPushButton(tr("全选"), this);
-    auto *none = new QPushButton(tr("清空"), this);
-    m_count = new QLabel(tr("已选 0 个"), this);
+    auto *countRow = new QHBoxLayout;
+    m_count = new Dtk::Widget::DLabel(tr("已选 0 个"), content);
     m_count->setStyleSheet(QStringLiteral("font-size: 12px;"));
-    auto *copy = new QPushButton(tr("复制选中"), this);
-    copy->setStyleSheet(QStringLiteral(
-        "QPushButton { color: white; background: rgba(74,144,255,0.85); border: none;"
-        " border-radius: 8px; padding: 6px 14px; }"
-        "QPushButton:hover { background: rgba(90,160,255,0.95); }"));
-    bottom->addWidget(all);
-    bottom->addWidget(none);
-    bottom->addStretch();
-    bottom->addWidget(m_count);
-    bottom->addSpacing(10);
-    bottom->addWidget(copy);
-    layout->addLayout(bottom);
+    countRow->addStretch();
+    countRow->addWidget(m_count);
+    layout->addLayout(countRow);
 
-    connect(all, &QPushButton::clicked, this, [this]() { setAll(true); });
-    connect(none, &QPushButton::clicked, this, [this]() { setAll(false); });
-    connect(copy, &QPushButton::clicked, this, &SegmentDialog::copySelected);
+    setContentLayoutContentsMargins(QMargins(16, 12, 16, 4));
+    addContent(content);
 
-    auto *close = new QPushButton(tr("关闭"), this);
-    layout->addWidget(close, 0, Qt::AlignRight);
-    connect(close, &QPushButton::clicked, this, &QDialog::close);
+    const int allButton = addButton(tr("全选"));
+    const int noneButton = addButton(tr("清空"));
+    const int copyButton = addButton(tr("复制选中"), true, ButtonRecommend);
+    const int closeButton = addButton(tr("关闭"));
+    setOnButtonClickedClose(false);
+    connect(this, &Dtk::Widget::DDialog::buttonClicked, this,
+            [this, allButton, noneButton, copyButton, closeButton](int index,
+                                                                   const QString &) {
+                if (index == allButton) {
+                    setAll(true);
+                } else if (index == noneButton) {
+                    setAll(false);
+                } else if (index == copyButton) {
+                    copySelected();
+                } else if (index == closeButton) {
+                    close();
+                }
+            });
 }
 
 void SegmentDialog::setAll(bool checked)
@@ -136,7 +151,7 @@ bool SegmentDialog::eventFilter(QObject *watched, QEvent *event)
 {
     auto *capsule = qobject_cast<QPushButton *>(watched);
     if (!capsule) {
-        return QDialog::eventFilter(watched, event);
+        return Dtk::Widget::DDialog::eventFilter(watched, event);
     }
 
     if (event->type() == QEvent::MouseButtonPress) {
@@ -154,11 +169,11 @@ bool SegmentDialog::eventFilter(QObject *watched, QEvent *event)
             updateCount();
         }
     }
-    return QDialog::eventFilter(watched, event);
+    return Dtk::Widget::DDialog::eventFilter(watched, event);
 }
 
 void SegmentDialog::mouseReleaseEvent(QMouseEvent *event)
 {
     m_selecting = false;
-    QDialog::mouseReleaseEvent(event);
+    Dtk::Widget::DDialog::mouseReleaseEvent(event);
 }

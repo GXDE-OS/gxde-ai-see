@@ -36,3 +36,6 @@ debian/gxde-ai-see/
 
 # translations build output
 *.qm
+
+# debhelper build-deps artifacts
+gxde-ai-see-build-deps_*

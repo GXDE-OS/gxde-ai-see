@@ -3,15 +3,15 @@
 
 #pragma once
 
-#include <QDialog>
+#include <DDialog>
+#include <DLabel>
 #include <QStringList>
 #include <QVector>
 
-class QLabel;
 class QPushButton;
 
-/** Word segmentation result as selectable capsules. */
-class SegmentDialog : public QDialog
+/** Word segmentation result as selectable capsules (DTK dialog). */
+class SegmentDialog : public Dtk::Widget::DDialog
 {
     Q_OBJECT
 
@@ -24,7 +24,7 @@ private:
     void setAll(bool checked);
 
     QVector<QPushButton *> m_capsules;
-    QLabel *m_count = nullptr;
+    Dtk::Widget::DLabel *m_count = nullptr;
     bool m_selecting = false;
     bool m_selectValue = true;
 

@@ -23,6 +23,7 @@ set(GXDE_AI_SEE_SOURCES
     src/main.cpp
     src/app.cpp
     src/config.cpp
+    src/service.cpp
     src/staging/stagingmodel.cpp
     src/portal/portalclient.cpp
     src/factory/linktools.cpp
@@ -37,6 +38,8 @@ set(GXDE_AI_SEE_SOURCES
     src/todo/todomodel.cpp
     src/todo/todowindow.cpp
     src/chat/chatclient.cpp
+    src/chat/attachment.cpp
+    src/chat/attachmentuploader.cpp
     src/chat/chatwindow.cpp
     src/chat/chattheme.cpp
     src/chat/mcpclient.cpp
@@ -80,6 +83,7 @@ endif ()
 add_executable(gxde-ai-see-selftest
     tests/selftest.cpp
     src/chat/chattheme.cpp
+    src/chat/attachment.cpp
     src/factory/linktools.cpp
     src/factory/contentclassifier.cpp
     src/factory/factoryactions.cpp
@@ -92,13 +96,72 @@ target_link_libraries(gxde-ai-see-selftest PRIVATE
 add_executable(gxde-ai-see-chattest
     tests/chattest.cpp
     src/chat/chatclient.cpp
+    src/chat/attachment.cpp
     src/chat/mcpclient.cpp
     src/config.cpp
 )
 target_include_directories(gxde-ai-see-chattest PRIVATE src)
-target_link_libraries(gxde-ai-see-chattest PRIVATE Qt6::Core Qt6::Network)
+target_link_libraries(gxde-ai-see-chattest PRIVATE Qt6::Core Qt6::Network Qt6::Gui)
 target_compile_definitions(gxde-ai-see-chattest PRIVATE
     TESTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests")
+
+add_executable(gxde-ai-see-servicetest
+    tests/servicetest.cpp
+    src/service.cpp
+    src/config.cpp
+)
+target_include_directories(gxde-ai-see-servicetest PRIVATE src)
+target_link_libraries(gxde-ai-see-servicetest PRIVATE Qt6::Core)
+
+add_executable(gxde-ai-see-uploadtest
+    tests/uploadtest.cpp
+    src/chat/chatclient.cpp
+    src/chat/attachment.cpp
+    src/chat/attachmentuploader.cpp
+    src/config.cpp
+)
+target_include_directories(gxde-ai-see-uploadtest PRIVATE src)
+target_link_libraries(gxde-ai-see-uploadtest PRIVATE
+    Qt6::Core Qt6::Gui Qt6::Network)
+
+add_executable(gxde-ai-see-chatuitest
+    tests/chatuitest.cpp
+    src/chat/chatwindow.cpp
+    src/chat/chatview.cpp
+    src/chat/chatclient.cpp
+    src/chat/attachment.cpp
+    src/chat/attachmentuploader.cpp
+    src/chat/chattheme.cpp
+    src/chat/mcpclient.cpp
+    src/chat/markdown.cpp
+    src/config.cpp
+    src/service.cpp
+    src/ui/aboutdialog.cpp
+    src/dialogs/flowlayout.cpp
+)
+target_include_directories(gxde-ai-see-chatuitest PRIVATE
+    src ${DTK2WIDGET_INCLUDE_DIRS} ${DTK6GUI_INCLUDE_DIRS})
+target_link_directories(gxde-ai-see-chatuitest PRIVATE
+    ${DTK2WIDGET_LIBRARY_DIRS} ${DTK6GUI_LIBRARY_DIRS})
+target_link_libraries(gxde-ai-see-chatuitest PRIVATE
+    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::DBus Qt6::Svg
+    ${DTK2WIDGET_LIBRARIES} ${DTK6GUI_LIBRARIES})
+target_compile_definitions(gxde-ai-see-chatuitest PRIVATE
+    SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+
+add_executable(gxde-ai-see-dialogtest
+    tests/dialogtest.cpp
+    src/dialogs/segmentdialog.cpp
+    src/dialogs/speechdialog.cpp
+    src/dialogs/flowlayout.cpp
+)
+target_include_directories(gxde-ai-see-dialogtest PRIVATE
+    src ${DTK2WIDGET_INCLUDE_DIRS} ${DTK6GUI_INCLUDE_DIRS})
+target_link_directories(gxde-ai-see-dialogtest PRIVATE
+    ${DTK2WIDGET_LIBRARY_DIRS} ${DTK6GUI_LIBRARY_DIRS})
+target_link_libraries(gxde-ai-see-dialogtest PRIVATE
+    Qt6::Core Qt6::Gui Qt6::Widgets
+    ${DTK2WIDGET_LIBRARIES} ${DTK6GUI_LIBRARIES})
 
 add_executable(gxde-ai-see-mcptest
     tests/mcptest.cpp

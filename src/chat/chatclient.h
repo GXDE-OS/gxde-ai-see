@@ -9,11 +9,23 @@
 #include <QString>
 #include <QVector>
 
+#include "attachment.h"
+
 struct ChatMessage
 {
     QString role; // system / user / assistant
     QString content;
+    QVector<ChatAttachment> attachments;
 };
+
+/** Trimmed API key from the chat settings. */
+QString chatApiKey();
+
+/**
+ * API base URL without a trailing slash and without /chat/completions.
+ * Files uploads use the same base ("<base>/files").
+ */
+QString chatApiBaseUrl();
 
 struct ToolCall
 {

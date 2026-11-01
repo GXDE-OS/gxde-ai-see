@@ -7,6 +7,8 @@
 #include <QWidget>
 
 class ContentFactory;
+class InPanelMenu;
+class MenuBackdrop;
 class QLabel;
 class QMimeData;
 class QPushButton;
@@ -43,9 +45,11 @@ signals:
     void askWithContent(const QString &text, const QStringList &files);
     void hideRequested();
     void todoAdded();
+    void openChatSettingsRequested();
 
 protected:
     void showEvent(QShowEvent *event) override;
+    void hideEvent(QHideEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
@@ -64,7 +68,12 @@ private:
     void toast(const QString &text);
     void applyMargins();
     void saveWindowState();
-    void showContextMenu(const QPoint &globalPos);
+    void showContextMenu(const QPoint &localPos);
+    void closeContextMenu();
+    void destroyContextMenu();
+    void applyContextMenuAction(const QString &id);
+    void showServiceStoppedDialog();
+    QRect panelGlobalRect() const;
 
     StagingModel *m_model = nullptr;
     StagingView *m_view = nullptr;
@@ -78,6 +87,8 @@ private:
     QPushButton *m_selectAllButton = nullptr;
     QPushButton *m_invertButton = nullptr;
     QPushButton *m_deleteButton = nullptr;
+    InPanelMenu *m_contextMenu = nullptr;
+    MenuBackdrop *m_contextMenuBackdrop = nullptr;
 
     int m_rightMargin = 16;
     int m_bottomMargin = 16;

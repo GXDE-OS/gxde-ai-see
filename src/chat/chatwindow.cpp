@@ -4,16 +4,27 @@
 #include "chatwindow.h"
 
 #include "config.h"
+#include "attachmentuploader.h"
+#include "service.h"
 #include "chatview.h"
 #include "chattheme.h"
 
 #include "../ui/aboutdialog.h"
+#include "../dialogs/flowlayout.h"
 #include "markdown.h"
 #include "mcpclient.h"
+
+#include <DFileDialog>
 
 #include <DGuiApplicationHelper>
 #include <QCheckBox>
 #include <QClipboard>
+#include <QFileIconProvider>
+#include <QFileInfo>
+#include <QMimeDatabase>
+#include <QStyle>
+#include <QTimer>
+#include <QToolButton>
 #include <QApplication>
 #include <QComboBox>
 #include <QDesktopServices>
@@ -22,6 +33,8 @@
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QDragEnterEvent>
+#include <QDragLeaveEvent>
+#include <QDragMoveEvent>
 #include <QDropEvent>
 #include <QFile>
 #include <QFontMetrics>
@@ -45,10 +58,12 @@
 #include <QPushButton>
 #include <DTitlebar>
 #include <QRegularExpression>
+#include <QResizeEvent>
 #include <QSaveFile>
 #include <QScreen>
 #include <QSpinBox>
 #include <QShortcut>
+#include <QStandardPaths>
 #include <QTextCursor>
 #include <QTextBrowser>
 #include <QIcon>
@@ -66,6 +81,50 @@ namespace {
 bool mimeOk(const QMimeData *mime)
 {
     return mime && (mime->hasUrls() || mime->hasText() || mime->hasImage());
+}
+
+QString attachmentStoreDir()
+{
+    return Config::instance()->dataDir() + QStringLiteral("/chat/attachments");
+}
+
+QJsonObject attachmentToJson(const ChatAttachment &attachment)
+{
+    QJsonObject object;
+    object.insert(QStringLiteral("id"), attachment.id);
+    object.insert(QStringLiteral("name"), attachment.name);
+    object.insert(QStringLiteral("path"), attachment.path);
+    object.insert(QStringLiteral("mimeType"), attachment.mimeType);
+    object.insert(QStringLiteral("size"), static_cast<double>(attachment.size));
+    object.insert(QStringLiteral("kind"), static_cast<int>(attachment.kind));
+    object.insert(QStringLiteral("fileId"), attachment.fileId);
+    object.insert(QStringLiteral("truncated"), attachment.truncated);
+    if (!attachment.text.isEmpty()) {
+        object.insert(QStringLiteral("text"), attachment.text);
+    }
+    return object;
+}
+
+ChatAttachment attachmentFromJson(const QJsonObject &object)
+{
+    ChatAttachment attachment;
+    attachment.id = object.value(QStringLiteral("id")).toString();
+    attachment.name = object.value(QStringLiteral("name")).toString();
+    attachment.path = object.value(QStringLiteral("path")).toString();
+    attachment.mimeType = object.value(QStringLiteral("mimeType")).toString();
+    attachment.size =
+        static_cast<qint64>(object.value(QStringLiteral("size")).toDouble());
+    const int kind = object.value(QStringLiteral("kind")).toInt();
+    attachment.kind = kind == ChatAttachment::Image
+        ? ChatAttachment::Image
+        : (kind == ChatAttachment::Text ? ChatAttachment::Text : ChatAttachment::File);
+    attachment.fileId = object.value(QStringLiteral("fileId")).toString();
+    attachment.truncated = object.value(QStringLiteral("truncated")).toBool();
+    attachment.text = object.value(QStringLiteral("text")).toString();
+    if (attachment.id.isEmpty()) {
+        attachment.id = AttachmentUtils::newId();
+    }
+    return attachment;
 }
 
 } // namespace
@@ -216,6 +275,199 @@ protected:
     }
 };
 
+/**
+ * Input box that turns files, images and very long text into attachments
+ * instead of pasting a list of paths or a wall of text.
+ */
+class ChatInput : public QPlainTextEdit
+{
+    Q_OBJECT
+
+public:
+    explicit ChatInput(QWidget *parent = nullptr)
+        : QPlainTextEdit(parent)
+    {
+    }
+
+signals:
+    void attachMime(const QMimeData *mime);
+
+protected:
+    static bool wantsAttachment(const QMimeData *mime)
+    {
+        if (!mime) {
+            return false;
+        }
+        return mime->hasUrls() || mime->hasImage() ||
+            (mime->hasText() && AttachmentUtils::isLongText(mime->text()));
+    }
+
+    void insertFromMimeData(const QMimeData *source) override
+    {
+        if (wantsAttachment(source)) {
+            Q_EMIT attachMime(source);
+            return;
+        }
+        QPlainTextEdit::insertFromMimeData(source);
+    }
+
+    void dragEnterEvent(QDragEnterEvent *event) override
+    {
+        if (wantsAttachment(event->mimeData())) {
+            event->acceptProposedAction();
+            return;
+        }
+        QPlainTextEdit::dragEnterEvent(event);
+    }
+
+    void dragMoveEvent(QDragMoveEvent *event) override
+    {
+        if (wantsAttachment(event->mimeData())) {
+            event->acceptProposedAction();
+            return;
+        }
+        QPlainTextEdit::dragMoveEvent(event);
+    }
+
+    void dropEvent(QDropEvent *event) override
+    {
+        if (wantsAttachment(event->mimeData())) {
+            Q_EMIT attachMime(event->mimeData());
+            event->acceptProposedAction();
+            return;
+        }
+        QPlainTextEdit::dropEvent(event);
+    }
+};
+
+/** One removable attachment in the composer strip. */
+class AttachmentChip : public QFrame
+{
+    Q_OBJECT
+
+public:
+    AttachmentChip(const ChatAttachment &attachment, bool uploading,
+                   QWidget *parent = nullptr)
+        : QFrame(parent)
+        , m_id(attachment.id)
+    {
+        const ChatPalette &palette = ChatTheme::palette();
+
+        setObjectName(QStringLiteral("attachmentChip"));
+        setFixedHeight(52);
+        setMinimumWidth(170);
+        setMaximumWidth(286);
+
+        auto *layout = new QHBoxLayout(this);
+        layout->setContentsMargins(6, 6, 4, 6);
+        layout->setSpacing(8);
+
+        auto *preview = new QLabel(this);
+        preview->setFixedSize(38, 38);
+        preview->setAlignment(Qt::AlignCenter);
+        preview->setStyleSheet(QStringLiteral("background: transparent;"));
+
+        QPixmap pixmap;
+        if (attachment.isImage() && !attachment.path.isEmpty()) {
+            const QPixmap source(attachment.path);
+            if (!source.isNull()) {
+                pixmap = source.scaled(38, 38, Qt::KeepAspectRatioByExpanding,
+                                       Qt::SmoothTransformation);
+            }
+        }
+        if (pixmap.isNull()) {
+            QIcon icon;
+            if (!attachment.path.isEmpty()) {
+                icon = QFileIconProvider().icon(QFileInfo(attachment.path));
+            }
+            if (icon.isNull()) {
+                icon = style()->standardIcon(QStyle::SP_FileIcon);
+            }
+            if (!icon.isNull()) {
+                pixmap = icon.pixmap(28, 28);
+            }
+        }
+        if (!pixmap.isNull()) {
+            preview->setPixmap(pixmap);
+        } else {
+            preview->setText(attachment.isImage() ? tr("图") : tr("文"));
+            preview->setStyleSheet(
+                QStringLiteral("QLabel { color: %1; background: transparent;"
+                               " font-size: 12px; }")
+                    .arg(ChatTheme::css(palette.textMuted)));
+        }
+        layout->addWidget(preview, 0, Qt::AlignVCenter);
+
+        auto *column = new QVBoxLayout;
+        column->setContentsMargins(0, 0, 0, 0);
+        column->setSpacing(2);
+
+        auto *name = new QLabel(this);
+        QFont nameFont = name->font();
+        nameFont.setPixelSize(12);
+        nameFont.setWeight(QFont::Medium);
+        name->setFont(nameFont);
+        name->setText(QFontMetrics(nameFont).elidedText(attachment.name, Qt::ElideMiddle, 156));
+        name->setToolTip(attachment.path.isEmpty() ? attachment.name : attachment.path);
+        column->addWidget(name);
+
+        auto *meta = new QLabel(this);
+        QFont metaFont = meta->font();
+        metaFont.setPixelSize(10);
+        meta->setFont(metaFont);
+        QString metaText;
+        if (uploading) {
+            metaText = tr("上传中…");
+        } else if (attachment.isImage() && !attachment.fileId.isEmpty()) {
+            metaText = tr("已上传 · %1")
+                           .arg(AttachmentUtils::displaySize(attachment.size));
+        } else if (attachment.kind == ChatAttachment::Text) {
+            metaText = tr("长文本 · %1 字").arg(attachment.text.size());
+        } else if (attachment.truncated) {
+            metaText = tr("%1 · 已截断")
+                           .arg(AttachmentUtils::displaySize(attachment.size));
+        } else {
+            metaText = AttachmentUtils::displaySize(attachment.size);
+        }
+        meta->setText(metaText);
+        column->addWidget(meta);
+        layout->addLayout(column, 1);
+
+        auto *remove = new QToolButton(this);
+        remove->setText(QStringLiteral("×"));
+        remove->setToolTip(tr("移除附件"));
+        remove->setCursor(Qt::PointingHandCursor);
+        remove->setFocusPolicy(Qt::NoFocus);
+        remove->setFixedSize(20, 20);
+        remove->setStyleSheet(
+            QStringLiteral("QToolButton { color: %1; background: transparent;"
+                           " border: none; border-radius: 5px; font-size: 14px; }"
+                           "QToolButton:hover { background: %2; color: %3; }")
+                .arg(ChatTheme::css(palette.textMuted),
+                     ChatTheme::css(palette.hoverStrong),
+                     ChatTheme::css(palette.textPrimary)));
+        connect(remove, &QToolButton::clicked, this,
+                [this]() { Q_EMIT removeRequested(m_id); });
+        layout->addWidget(remove, 0, Qt::AlignTop);
+
+        setStyleSheet(
+            QStringLiteral("QFrame#attachmentChip { background: %1; border: 1px solid %2;"
+                           " border-radius: 9px; }")
+                .arg(ChatTheme::css(palette.inputBg),
+                     ChatTheme::css(palette.inputBorder)));
+        name->setStyleSheet(QStringLiteral("color: %1; background: transparent;")
+                                .arg(ChatTheme::css(palette.textPrimary)));
+        meta->setStyleSheet(QStringLiteral("color: %1; background: transparent;")
+                                .arg(ChatTheme::css(palette.textMuted)));
+    }
+
+signals:
+    void removeRequested(const QString &id);
+
+private:
+    QString m_id;
+};
+
 namespace {
 constexpr int kPreviewRole = Qt::UserRole + 1;
 constexpr int kTimeRole = Qt::UserRole + 2;
@@ -291,8 +543,10 @@ private:
 ChatWindow::ChatWindow(QWidget *parent)
     : Dtk::Widget::DMainWindow(parent)
     , m_client(new ChatClient(this))
+    , m_uploader(new AttachmentUploader(this))
 {
     setWindowTitle(tr("小埃同学"));
+    setAcceptDrops(true);
     titlebar()->setTitle(tr("小埃同学"));
     titlebar()->setIcon(QApplication::windowIcon());
     titlebar()->setAutoHideOnFullscreen(true);
@@ -342,6 +596,7 @@ ChatWindow::ChatWindow(QWidget *parent)
         }
         save();
         renderConversation();
+        updateSendState();
     });
     connect(m_client, &ChatClient::toolCallsReady, this, [this](const QVector<ToolCall> &calls) {
         if (m_current < 0 || m_streamingIndex < 0) {
@@ -369,6 +624,7 @@ ChatWindow::ChatWindow(QWidget *parent)
     });
     connect(m_client, &ChatClient::onceFinished, this, [this](const QString &summary) {
         m_compressing = false;
+        updateSendState();
         if (m_current >= 0) {
             ChatConversation &conversation = m_conversations[m_current];
             const int keep = qMax(2, Config::instance()
@@ -394,6 +650,7 @@ ChatWindow::ChatWindow(QWidget *parent)
     });
     connect(m_client, &ChatClient::onceFailed, this, [this](const QString &error) {
         m_compressing = false;
+        updateSendState();
         m_status->hide();
         if (m_afterCompressSend) {
             m_afterCompressSend = false;
@@ -412,7 +669,52 @@ ChatWindow::ChatWindow(QWidget *parent)
         m_streamingIndex = -1;
         save();
         renderConversation();
+        updateSendState();
     });
+
+    connect(m_uploader, &AttachmentUploader::uploaded, this,
+            [this](const QString &attachmentId, const QString &fileId) {
+                m_uploading.remove(attachmentId);
+                bool stored = false;
+                for (ChatAttachment &attachment : m_pendingAttachments) {
+                    if (attachment.id == attachmentId) {
+                        attachment.fileId = fileId;
+                    }
+                }
+                for (ChatConversation &conversation : m_conversations) {
+                    for (ChatMessage &message : conversation.messages) {
+                        for (ChatAttachment &attachment : message.attachments) {
+                            if (attachment.id == attachmentId) {
+                                attachment.fileId = fileId;
+                                stored = true;
+                            }
+                        }
+                    }
+                }
+                if (stored) {
+                    save();
+                    renderConversation();
+                }
+                updateAttachmentBar();
+                if (m_sendAfterUploads && !waitingForUploads()) {
+                    m_sendAfterUploads = false;
+                    m_status->hide();
+                    sendMessage();
+                }
+            });
+    connect(m_uploader, &AttachmentUploader::failed, this,
+            [this](const QString &attachmentId, const QString &error) {
+                m_uploading.remove(attachmentId);
+                updateAttachmentBar();
+                QTimer::singleShot(0, this, [this, error]() {
+                    showTransientStatus(
+                        tr("附件上传失败：%1；发送时将直接内联图片").arg(error), 6000);
+                });
+                if (m_sendAfterUploads && !waitingForUploads()) {
+                    m_sendAfterUploads = false;
+                    sendMessage();
+                }
+            });
 }
 
 void ChatWindow::setupUi()
@@ -552,14 +854,31 @@ void ChatWindow::setupUi()
     inputLayout->setContentsMargins(20, 6, 20, 14);
     inputLayout->setSpacing(5);
 
+    m_attachmentBar = new QWidget(inputPane);
+    m_attachmentBar->setObjectName(QStringLiteral("attachmentBar"));
+    m_attachmentBar->setStyleSheet(QStringLiteral("background: transparent;"));
+    m_attachmentBar->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
+    m_attachmentLayout = new FlowLayout(m_attachmentBar, 0, 6);
+    m_attachmentBar->hide();
+    inputLayout->addWidget(m_attachmentBar);
+
     auto *inputFrame = new QFrame(inputPane);
     m_inputFrame = inputFrame;
     auto *frameLayout = new QHBoxLayout(inputFrame);
-    frameLayout->setContentsMargins(12, 8, 8, 8);
+    frameLayout->setContentsMargins(8, 8, 8, 8);
     frameLayout->setSpacing(8);
 
-    m_input = new QPlainTextEdit(inputFrame);
-    m_input->setPlaceholderText(tr("输入消息，Ctrl+Enter 发送；也可以把文件/文字拖进窗口"));
+    m_attachButton = new QToolButton(inputFrame);
+    m_attachButton->setText(QStringLiteral("📎"));
+    m_attachButton->setToolTip(tr("添加附件（也可以直接拖入文件、图片或长文本）"));
+    m_attachButton->setCursor(Qt::PointingHandCursor);
+    m_attachButton->setFocusPolicy(Qt::NoFocus);
+    m_attachButton->setFixedSize(32, 34);
+    frameLayout->addWidget(m_attachButton, 0, Qt::AlignBottom);
+
+    m_input = new ChatInput(inputFrame);
+    m_input->setPlaceholderText(
+        tr("输入消息，Ctrl+Enter 发送；拖入文件、图片或长文本即可添加附件"));
     m_input->setFixedHeight(64);
     frameLayout->addWidget(m_input, 1);
 
@@ -569,9 +888,11 @@ void ChatWindow::setupUi()
     frameLayout->addWidget(m_sendButton, 0, Qt::AlignBottom);
     inputLayout->addWidget(inputFrame);
 
-    auto *hint = new QLabel(tr("Enter 换行 · Ctrl+Enter 发送 · 支持拖入文件/链接/图片"), inputPane);
+    auto *hint = new QLabel(
+        tr("Enter 换行 · Ctrl+Enter 发送 · 文件、图片和超长文字会作为附件上传"), inputPane);
     hint->setAlignment(Qt::AlignRight);
     m_hint = hint;
+    m_hintDefault = hint->text();
     inputLayout->addWidget(hint);
     paneLayout->addWidget(inputPane);
 
@@ -581,11 +902,10 @@ void ChatWindow::setupUi()
     connect(newButton, &QPushButton::clicked, this, &ChatWindow::newConversation);
     connect(settingsButton, &QPushButton::clicked, this, &ChatWindow::openSettings);
     connect(m_sendButton, &QPushButton::clicked, this, &ChatWindow::sendMessage);
-    connect(m_input, &QPlainTextEdit::textChanged, this, [this]() {
-        m_sendButton->setEnabled(!m_input->toPlainText().trimmed().isEmpty() &&
-                                 !m_client->busy());
-    });
-    m_sendButton->setEnabled(false);
+    connect(m_input, &QPlainTextEdit::textChanged, this, &ChatWindow::updateSendState);
+    connect(m_input, &ChatInput::attachMime, this, &ChatWindow::handleDroppedMime);
+    connect(m_attachButton, &QToolButton::clicked, this, &ChatWindow::openAttachmentPicker);
+    updateSendState();
 
     connect(m_sidebar, &QListWidget::currentRowChanged, this, &ChatWindow::selectConversation);
     connect(static_cast<ChatSidebar *>(m_sidebar), &ChatSidebar::droppedAt, this,
@@ -676,6 +996,12 @@ void ChatWindow::applyTheme()
                  ChatTheme::css(palette.textPrimary));
     m_settingsButton->setStyleSheet(secondaryButton);
     m_menuButton->setStyleSheet(secondaryButton);
+    m_attachButton->setStyleSheet(
+        QStringLiteral("QToolButton { color: %1; background: transparent; border: none;"
+                       " border-radius: 7px; font-size: 16px; }"
+                       "QToolButton:hover { background: %2; }")
+            .arg(ChatTheme::css(palette.textSecondary),
+                 ChatTheme::css(palette.hoverStrong)));
 
     m_header->setStyleSheet(
         QStringLiteral("QWidget { background: %1; border-bottom: 1px solid %2; }")
@@ -716,6 +1042,9 @@ void ChatWindow::applyTheme()
 
     m_hint->setStyleSheet(QStringLiteral("color: %1; font-size: 10px;")
                               .arg(ChatTheme::css(palette.textFaint)));
+
+    /* Chips pick colours from the palette, so rebuild them on theme changes. */
+    updateAttachmentBar();
 }
 
 void ChatWindow::load()
@@ -745,6 +1074,14 @@ void ChatWindow::load()
             ChatMessage message;
             message.role = messageObject.value(QStringLiteral("role")).toString();
             message.content = messageObject.value(QStringLiteral("content")).toString();
+            for (const QJsonValue &attachmentValue :
+                 messageObject.value(QStringLiteral("attachments")).toArray()) {
+                ChatAttachment attachment =
+                    attachmentFromJson(attachmentValue.toObject());
+                if (attachment.isValid()) {
+                    message.attachments.append(attachment);
+                }
+            }
             conversation.messages.append(message);
         }
         m_conversations.append(conversation);
@@ -761,6 +1098,13 @@ void ChatWindow::save() const
             QJsonObject object;
             object.insert(QStringLiteral("role"), message.role);
             object.insert(QStringLiteral("content"), message.content);
+            if (!message.attachments.isEmpty()) {
+                QJsonArray attachments;
+                for (const ChatAttachment &attachment : message.attachments) {
+                    attachments.append(attachmentToJson(attachment));
+                }
+                object.insert(QStringLiteral("attachments"), attachments);
+            }
             messages.append(object);
         }
         QJsonObject object;
@@ -791,6 +1135,9 @@ void ChatWindow::newConversation()
         m_client->cancel();
         m_streamingIndex = -1;
     }
+    /* A send deferred until an attachment upload finishes must not leak into
+     * the conversation the user just switched to. */
+    m_sendAfterUploads = false;
 
     ChatConversation conversation;
     conversation.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -814,6 +1161,7 @@ void ChatWindow::selectConversation(int index)
         m_client->cancel();
         m_streamingIndex = -1;
     }
+    m_sendAfterUploads = false;
     m_current = index;
     renderConversation();
 }
@@ -902,6 +1250,11 @@ void ChatWindow::updateSidebar()
                 preview = message.content.simplified().left(60);
                 break;
             }
+            if (!message.attachments.isEmpty()) {
+                const ChatAttachment &attachment = message.attachments.first();
+                preview = tr("[附件] %1").arg(attachment.name);
+                break;
+            }
         }
         item->setData(kPreviewRole, preview);
         item->setData(kTimeRole,
@@ -937,29 +1290,46 @@ void ChatWindow::updateHeader()
 
 void ChatWindow::sendMessage()
 {
-    if (m_client->busy() || m_compressing) {
+    if (m_client->busy() || m_compressing || m_sendAfterUploads) {
         return;
     }
     const QString text = m_input->toPlainText().trimmed();
-    if (text.isEmpty()) {
+    if (text.isEmpty() && m_pendingAttachments.isEmpty()) {
         return;
     }
+
+    /* Give in-flight Files API uploads a chance to finish so the message can
+     * reference file_id instead of repeating base64 image data. */
+    if (waitingForUploads()) {
+        m_sendAfterUploads = true;
+        m_status->setText(tr("正在上传附件…"));
+        m_status->show();
+        return;
+    }
+
     if (m_current < 0) {
         newConversation();
     }
 
     ChatConversation &conversation = m_conversations[m_current];
     if (conversation.title == tr("新对话")) {
-        conversation.title = text.left(24);
+        QString title = text;
+        if (title.isEmpty() && !m_pendingAttachments.isEmpty()) {
+            title = m_pendingAttachments.first().name;
+        }
+        conversation.title = title.left(24);
     }
-    conversation.messages.append(ChatMessage{ QStringLiteral("user"), text });
+    conversation.messages.append(
+        ChatMessage{ QStringLiteral("user"), text, m_pendingAttachments });
     conversation.updatedAt = QDateTime::currentMSecsSinceEpoch();
     m_skipCompress = false;
     m_toolScaffold = QJsonArray();
     m_toolRounds = 0;
 
+    m_pendingAttachments.clear();
     m_input->clear();
     m_status->hide();
+    updateAttachmentBar();
     updateSidebar();
     requestCompletion();
 }
@@ -978,7 +1348,7 @@ void ChatWindow::requestCompletion()
     ChatConversation &conversation = m_conversations[m_current];
     conversation.messages.append(ChatMessage{ QStringLiteral("assistant"), QString() });
     m_streamingIndex = conversation.messages.size() - 1;
-    m_sendButton->setEnabled(false);
+    updateSendState();
     renderConversation();
     sendPayload();
 }
@@ -1127,7 +1497,7 @@ void ChatWindow::beginCompression(bool thenSend)
     for (const ChatMessage &message : older) {
         transcript += (message.role == QStringLiteral("user") ? QStringLiteral("用户：")
                                                               : QStringLiteral("助手："));
-        transcript += message.content;
+        transcript += AttachmentUtils::promptText(message.content, message.attachments);
         transcript += QLatin1Char('\n');
     }
     transcript = transcript.left(20000);
@@ -1141,6 +1511,7 @@ void ChatWindow::beginCompression(bool thenSend)
 
     m_compressing = true;
     m_afterCompressSend = thenSend;
+    updateSendState();
     m_status->setText(tr("正在压缩上下文…"));
     m_status->show();
     m_client->sendOnce(request);
@@ -1174,12 +1545,14 @@ void ChatWindow::editMessage(int index)
         return;
     }
     const QString text = edit->toPlainText().trimmed();
-    if (text.isEmpty()) {
+    const QVector<ChatAttachment> attachments =
+        conversation.messages.at(index).attachments;
+    if (text.isEmpty() && attachments.isEmpty()) {
         return;
     }
 
     conversation.messages = conversation.messages.mid(0, index);
-    conversation.messages.append(ChatMessage{ QStringLiteral("user"), text });
+    conversation.messages.append(ChatMessage{ QStringLiteral("user"), text, attachments });
     conversation.updatedAt = QDateTime::currentMSecsSinceEpoch();
     save();
     updateSidebar();
@@ -1281,6 +1654,9 @@ void ChatWindow::showAbout()
 
 void ChatWindow::appendError(const QString &message)
 {
+    if (m_statusTimer) {
+        m_statusTimer->stop();
+    }
     m_status->setText(message);
     m_status->show();
 }
@@ -1293,6 +1669,20 @@ void ChatWindow::openSettings()
 
     auto *layout = new QVBoxLayout(&dialog);
     auto *form = new QFormLayout;
+
+    auto *serviceBox =
+        new QCheckBox(tr("启用传送门服务（开机自启与后台保活）"), &dialog);
+    serviceBox->setChecked(PortalService::instance()->enabled());
+    form->addRow(tr("后台服务"), serviceBox);
+
+    auto *serviceHint = new QLabel(
+        tr("关闭后会取消开机自启与后台保活，并停用传送门面板。可随时在这里重新打开。"),
+        &dialog);
+    serviceHint->setWordWrap(true);
+    serviceHint->setStyleSheet(QStringLiteral("color: %1; font-size: 11px;")
+                                   .arg(ChatTheme::css(
+                                       ChatTheme::palette().textSecondary)));
+    form->addRow(QString(), serviceHint);
 
     auto *keyEdit = new QLineEdit(Config::instance()
                                       ->get(QStringLiteral("chat/apiKey"))
@@ -1452,8 +1842,198 @@ void ChatWindow::openSettings()
             m_status->show();
         }
         Config::instance()->sync();
+        PortalService::instance()->setEnabled(serviceBox->isChecked());
         renderConversation();
     }
+}
+
+void ChatWindow::addAttachment(const ChatAttachment &attachment)
+{
+    if (!attachment.isValid()) {
+        showTransientStatus(tr("无法添加该附件"));
+        return;
+    }
+
+    for (const ChatAttachment &existing : m_pendingAttachments) {
+        if (!attachment.path.isEmpty() && existing.path == attachment.path &&
+            existing.kind == attachment.kind) {
+            showTransientStatus(tr("该附件已在列表中：%1").arg(attachment.name));
+            return;
+        }
+        if (attachment.kind == ChatAttachment::Text &&
+            existing.kind == ChatAttachment::Text && existing.text == attachment.text) {
+            showTransientStatus(tr("该文本已在附件列表中"));
+            return;
+        }
+    }
+
+    m_pendingAttachments.append(attachment);
+    if (attachment.isImage()) {
+        startUpload(attachment);
+    }
+    updateAttachmentBar();
+    showTransientStatus(
+        attachment.kind == ChatAttachment::Text
+            ? tr("已添加长文本附件（%1 字）").arg(attachment.text.size())
+            : tr("已添加附件：%1").arg(attachment.name));
+}
+
+void ChatWindow::addAttachmentFromFile(const QString &path)
+{
+    const QFileInfo info(path);
+    if (!info.exists()) {
+        showTransientStatus(tr("文件不存在：%1").arg(path));
+        return;
+    }
+    if (info.isDir()) {
+        /* Directories cannot be sent to the model; keep the path in the input. */
+        insertInputText(info.absoluteFilePath());
+        return;
+    }
+
+    const ChatAttachment attachment =
+        AttachmentUtils::fromFile(info.absoluteFilePath(), attachmentStoreDir());
+    if (!attachment.isValid()) {
+        showTransientStatus(tr("无法读取附件：%1").arg(info.fileName()));
+        return;
+    }
+    addAttachment(attachment);
+}
+
+void ChatWindow::openAttachmentPicker()
+{
+    const QString documents =
+        QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+    const QStringList files = Dtk::Widget::DFileDialog::getOpenFileNames(
+        this, tr("添加附件"), documents,
+        tr("所有文件 (*);;图片 (*.png *.jpg *.jpeg *.gif *.webp);;"
+           "文本 (*.txt *.md *.json *.csv *.log *.xml *.yaml *.yml)"));
+    for (const QString &file : files) {
+        addAttachmentFromFile(file);
+    }
+}
+
+void ChatWindow::removeAttachment(const QString &id)
+{
+    for (int i = 0; i < m_pendingAttachments.size(); ++i) {
+        if (m_pendingAttachments.at(i).id == id) {
+            m_pendingAttachments.removeAt(i);
+            break;
+        }
+    }
+    if (m_sendAfterUploads && !waitingForUploads()) {
+        /* The user removed the attachment that the send was waiting for. */
+        m_sendAfterUploads = false;
+        m_status->hide();
+    }
+    updateAttachmentBar();
+}
+
+void ChatWindow::startUpload(const ChatAttachment &attachment)
+{
+    if (!attachment.isImage() || attachment.path.isEmpty()) {
+        return;
+    }
+    if (m_uploader->isUploading(attachment.id)) {
+        return;
+    }
+    m_uploading.insert(attachment.id);
+    m_uploader->upload(attachment);
+}
+
+void ChatWindow::updateAttachmentBar()
+{
+    if (!m_attachmentLayout || !m_attachmentBar) {
+        return;
+    }
+
+    while (QLayoutItem *item = m_attachmentLayout->takeAt(0)) {
+        if (QWidget *widget = item->widget()) {
+            widget->hide();
+            widget->deleteLater();
+        }
+        delete item;
+    }
+
+    for (const ChatAttachment &attachment : m_pendingAttachments) {
+        auto *chip = new AttachmentChip(attachment, m_uploading.contains(attachment.id),
+                                        m_attachmentBar);
+        connect(chip, &AttachmentChip::removeRequested, this,
+                &ChatWindow::removeAttachment);
+        m_attachmentLayout->addWidget(chip);
+    }
+
+    m_attachmentBar->setVisible(!m_pendingAttachments.isEmpty());
+    QTimer::singleShot(0, this, &ChatWindow::syncAttachmentBarHeight);
+    updateSendState();
+}
+
+void ChatWindow::syncAttachmentBarHeight()
+{
+    if (!m_attachmentBar || !m_attachmentLayout || !m_attachmentBar->isVisible()) {
+        return;
+    }
+    const int width = m_attachmentBar->width();
+    if (width <= 0) {
+        return;
+    }
+    const int height = m_attachmentLayout->heightForWidth(width);
+    if (height > 0 && m_attachmentBar->height() != height) {
+        m_attachmentBar->setFixedHeight(height);
+    }
+}
+
+void ChatWindow::updateSendState()
+{
+    if (!m_sendButton || !m_input) {
+        return;
+    }
+    const bool hasText = !m_input->toPlainText().trimmed().isEmpty();
+    const bool hasAttachments = !m_pendingAttachments.isEmpty();
+    m_sendButton->setEnabled((hasText || hasAttachments) && !m_client->busy() &&
+                             !m_compressing);
+}
+
+void ChatWindow::showTransientStatus(const QString &text, int milliseconds)
+{
+    if (!m_status) {
+        return;
+    }
+    if (!m_statusTimer) {
+        m_statusTimer = new QTimer(this);
+        m_statusTimer->setSingleShot(true);
+        connect(m_statusTimer, &QTimer::timeout, this, [this]() {
+            if (m_status) {
+                m_status->hide();
+            }
+        });
+    }
+    m_status->setText(text);
+    m_status->show();
+    m_statusTimer->start(qMax(1200, milliseconds));
+}
+
+bool ChatWindow::waitingForUploads() const
+{
+    for (const ChatAttachment &attachment : m_pendingAttachments) {
+        if (m_uploading.contains(attachment.id)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void ChatWindow::insertInputText(const QString &text)
+{
+    if (text.isEmpty()) {
+        return;
+    }
+    m_input->moveCursor(QTextCursor::End);
+    if (!m_input->toPlainText().isEmpty()) {
+        m_input->insertPlainText(QStringLiteral("\n"));
+    }
+    m_input->insertPlainText(text);
+    m_input->setFocus();
 }
 
 void ChatWindow::handleDroppedMime(const QMimeData *mime)
@@ -1462,38 +2042,78 @@ void ChatWindow::handleDroppedMime(const QMimeData *mime)
         return;
     }
 
-    QString text;
+    bool handled = false;
     if (mime->hasUrls()) {
+        QStringList links;
+        bool localFile = false;
         for (const QUrl &url : mime->urls()) {
-            if (!text.isEmpty()) {
-                text += QLatin1Char('\n');
+            if (url.isLocalFile()) {
+                const QFileInfo info(url.toLocalFile());
+                if (info.isFile()) {
+                    addAttachmentFromFile(info.absoluteFilePath());
+                    localFile = true;
+                } else {
+                    links.append(info.absoluteFilePath());
+                }
+            } else if (url.isValid() && !url.scheme().isEmpty()) {
+                links.append(url.toString());
             }
-            text += url.isLocalFile() ? QStringLiteral("[文件] %1").arg(url.toLocalFile())
-                                      : url.toString();
         }
-    } else if (mime->hasImage()) {
+
+        if (!localFile && mime->hasImage()) {
+            /* Dragging an image out of a browser carries a URL *and* the
+             * pixels; attach the pixels instead of pasting the URL. */
+            const QImage image = qvariant_cast<QImage>(mime->imageData());
+            if (!image.isNull()) {
+                const QString name =
+                    tr("图片 %1.png")
+                        .arg(QDateTime::currentDateTime().toString(
+                            QStringLiteral("yyyyMMdd-HHmmss")));
+                const ChatAttachment attachment =
+                    AttachmentUtils::fromImage(image, name, attachmentStoreDir());
+                if (attachment.isValid()) {
+                    addAttachment(attachment);
+                    handled = true;
+                }
+            }
+        }
+
+        if (!handled) {
+            if (!links.isEmpty()) {
+                insertInputText(links.join(QLatin1Char('\n')));
+            }
+            handled = true;
+        }
+    }
+
+    if (!handled && mime->hasImage()) {
         const QImage image = qvariant_cast<QImage>(mime->imageData());
         if (!image.isNull()) {
-            const QString dir = Config::instance()->cacheDir() + QStringLiteral("/chat");
-            QDir().mkpath(dir);
-            const QString path = dir + QLatin1Char('/')
-                + QUuid::createUuid().toString(QUuid::WithoutBraces) + QStringLiteral(".png");
-            image.save(path);
-            text = QStringLiteral("[图片] %1").arg(path);
+            const QString name =
+                tr("图片 %1.png")
+                    .arg(QDateTime::currentDateTime().toString(
+                        QStringLiteral("yyyyMMdd-HHmmss")));
+            const ChatAttachment attachment =
+                AttachmentUtils::fromImage(image, name, attachmentStoreDir());
+            if (attachment.isValid()) {
+                addAttachment(attachment);
+                handled = true;
+            }
         }
-    } else if (mime->hasText()) {
-        text = mime->text();
     }
 
-    if (text.isEmpty()) {
-        return;
+    if (!handled && mime->hasText()) {
+        const QString text = mime->text();
+        if (!text.trimmed().isEmpty()) {
+            if (AttachmentUtils::isLongText(text)) {
+                addAttachment(AttachmentUtils::fromText(text));
+            } else {
+                insertInputText(text);
+            }
+        }
     }
 
-    m_input->moveCursor(QTextCursor::End);
-    if (!m_input->toPlainText().isEmpty()) {
-        m_input->insertPlainText(QStringLiteral("\n"));
-    }
-    m_input->insertPlainText(text);
+    updateSendState();
     m_input->setFocus();
 }
 
@@ -1515,26 +2135,90 @@ void ChatWindow::startConversationWith(const QString &text, const QStringList &f
     activateForAsk();
     newConversation();
 
-    QString content = text;
-    if (!files.isEmpty()) {
-        if (!content.isEmpty()) {
-            content += QLatin1Char('\n');
-        }
-        content += files.join(QLatin1Char('\n'));
-    }
-    if (!content.isEmpty()) {
-        m_input->setPlainText(content);
-        m_input->moveCursor(QTextCursor::End);
-        const QString title = text.isEmpty() ? QFileInfo(files.value(0)).fileName()
-                                             : text.simplified().left(24);
-        if (m_current >= 0 && !title.isEmpty()) {
-            m_conversations[m_current].title = title;
-            save();
-            updateSidebar();
-            renderConversation();
+    QStringList added;
+    for (const QString &file : files) {
+        const QFileInfo info(file);
+        if (info.isFile()) {
+            const ChatAttachment attachment =
+                AttachmentUtils::fromFile(info.absoluteFilePath(), attachmentStoreDir());
+            if (attachment.isValid()) {
+                addAttachment(attachment);
+                added.append(attachment.name);
+            } else {
+                insertInputText(file);
+            }
+        } else if (!file.isEmpty()) {
+            insertInputText(file);
         }
     }
+
+    if (!text.isEmpty()) {
+        if (AttachmentUtils::isLongText(text)) {
+            addAttachment(AttachmentUtils::fromText(text));
+        } else {
+            insertInputText(text);
+        }
+    }
+
+    QString title = text;
+    if (title.isEmpty() && !added.isEmpty()) {
+        title = added.first();
+    }
+    if (m_current >= 0 && !title.isEmpty()) {
+        m_conversations[m_current].title = title.simplified().left(24);
+        save();
+        updateSidebar();
+        renderConversation();
+    }
+    updateSendState();
     m_input->setFocus();
+}
+
+void ChatWindow::dragEnterEvent(QDragEnterEvent *event)
+{
+    if (mimeOk(event->mimeData())) {
+        event->acceptProposedAction();
+        m_hint->setText(tr("松开即可添加为附件"));
+        return;
+    }
+    QWidget::dragEnterEvent(event);
+}
+
+void ChatWindow::dragMoveEvent(QDragMoveEvent *event)
+{
+    if (mimeOk(event->mimeData())) {
+        event->acceptProposedAction();
+        return;
+    }
+    QWidget::dragMoveEvent(event);
+}
+
+void ChatWindow::dragLeaveEvent(QDragLeaveEvent *event)
+{
+    m_hint->setText(m_hintDefault);
+    QWidget::dragLeaveEvent(event);
+}
+
+void ChatWindow::dropEvent(QDropEvent *event)
+{
+    m_hint->setText(m_hintDefault);
+    if (!mimeOk(event->mimeData())) {
+        event->ignore();
+        return;
+    }
+    handleDroppedMime(event->mimeData());
+    event->acceptProposedAction();
+}
+
+void ChatWindow::resizeEvent(QResizeEvent *event)
+{
+    Dtk::Widget::DMainWindow::resizeEvent(event);
+    syncAttachmentBarHeight();
+}
+
+void ChatWindow::showSettings()
+{
+    openSettings();
 }
 
 void ChatWindow::activateForAsk()
@@ -1549,6 +2233,7 @@ void ChatWindow::showEvent(QShowEvent *event)
 {
     QWidget::showEvent(event);
     m_input->setFocus();
+    syncAttachmentBarHeight();
 }
 
 #include "chatwindow.moc"

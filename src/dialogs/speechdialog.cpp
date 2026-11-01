@@ -5,62 +5,72 @@
 
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QPlainTextEdit>
+#include <QPalette>
 #include <QProcess>
-#include <QPushButton>
-#include <QSlider>
 #include <QStandardPaths>
 #include <QVBoxLayout>
 
+#include <DLabel>
+#include <dslider.h>
+#include <dtextedit.h>
+
 SpeechDialog::SpeechDialog(const QString &text, QWidget *parent)
-    : QDialog(parent)
+    : Dtk::Widget::DDialog(parent)
     , m_text(text)
 {
-    setWindowTitle(tr("朗读"));
+    setTitle(tr("朗读"));
     setAttribute(Qt::WA_DeleteOnClose);
-    resize(480, 380);
 
-    auto *layout = new QVBoxLayout(this);
-    layout->setContentsMargins(16, 14, 16, 14);
+    auto *content = new QWidget;
+    content->setMinimumWidth(420);
+    auto *layout = new QVBoxLayout(content);
+    layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(10);
 
-    m_preview = new QPlainTextEdit(this);
+    m_preview = new Dtk::Widget::DTextEdit(content);
     m_preview->setReadOnly(true);
     m_preview->setPlainText(text.left(4000));
-    m_preview->setStyleSheet(QStringLiteral(
-        "QPlainTextEdit { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.9);"
-        " border: none; border-radius: 8px; padding: 8px; }"));
+    const bool dark = palette().color(QPalette::Window).lightness() < 128;
+    const QColor baseColor = dark ? QColor(38, 38, 42) : QColor(255, 255, 255);
+    const QColor textColor = dark ? QColor(235, 235, 235) : QColor(30, 30, 30);
+    m_preview->setStyleSheet(
+        QStringLiteral("QTextEdit { color: %1; background-color: %2;"
+                       " border: 1px solid %3; border-radius: 6px; padding: 6px; }")
+            .arg(textColor.name(), baseColor.name(),
+                 dark ? QStringLiteral("rgba(255,255,255,0.14)")
+                      : QStringLiteral("rgba(0,0,0,0.12)")));
+    m_preview->setMinimumHeight(200);
     layout->addWidget(m_preview, 1);
 
     auto *rateRow = new QHBoxLayout;
-    rateRow->addWidget(new QLabel(tr("语速"), this));
-    m_rate = new QSlider(Qt::Horizontal, this);
+    rateRow->addWidget(new Dtk::Widget::DLabel(tr("语速"), content));
+    m_rate = new Dtk::Widget::DSlider(Qt::Horizontal, content);
     m_rate->setRange(50, 200);
     m_rate->setValue(100);
     rateRow->addWidget(m_rate, 1);
     layout->addLayout(rateRow);
 
-    m_status = new QLabel(this);
-    m_status->setStyleSheet(QStringLiteral("color: rgba(255,255,255,0.55); font-size: 12px;"));
+    m_status = new Dtk::Widget::DLabel(content);
+    m_status->setForegroundRole(QPalette::PlaceholderText);
     layout->addWidget(m_status);
 
-    auto *buttons = new QHBoxLayout;
-    auto *play = new QPushButton(tr("开始朗读"), this);
-    play->setStyleSheet(QStringLiteral(
-        "QPushButton { color: white; background: rgba(74,144,255,0.85); border: none;"
-        " border-radius: 8px; padding: 7px 16px; }"
-        "QPushButton:hover { background: rgba(90,160,255,0.95); }"));
-    auto *stopButton = new QPushButton(tr("停止"), this);
-    auto *close = new QPushButton(tr("关闭"), this);
-    buttons->addWidget(play);
-    buttons->addWidget(stopButton);
-    buttons->addStretch();
-    buttons->addWidget(close);
-    layout->addLayout(buttons);
+    setContentLayoutContentsMargins(QMargins(16, 12, 16, 4));
+    addContent(content);
 
-    connect(play, &QPushButton::clicked, this, &SpeechDialog::start);
-    connect(stopButton, &QPushButton::clicked, this, &SpeechDialog::stop);
-    connect(close, &QPushButton::clicked, this, &QDialog::close);
+    const int playButton = addButton(tr("开始朗读"), true, ButtonRecommend);
+    const int stopButton = addButton(tr("停止"));
+    const int closeButton = addButton(tr("关闭"));
+    setOnButtonClickedClose(false);
+    connect(this, &Dtk::Widget::DDialog::buttonClicked, this,
+            [this, playButton, stopButton, closeButton](int index, const QString &) {
+                if (index == playButton) {
+                    start();
+                } else if (index == stopButton) {
+                    stop();
+                } else if (index == closeButton) {
+                    close();
+                }
+            });
 }
 
 SpeechDialog::~SpeechDialog()

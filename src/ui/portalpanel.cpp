@@ -5,6 +5,7 @@
 
 #include "config.h"
 #include "portal/portalclient.h"
+#include "service.h"
 
 #include "actions/downloader.h"
 #include "actions/texttools.h"
@@ -16,16 +17,18 @@
 #include "dialogs/speechdialog.h"
 #include "todo/todomodel.h"
 
+#include <DDialog>
+#include <DFileDialog>
+#include <DLabel>
+#include <dtextedit.h>
+
 #include <QApplication>
 #include <QClipboard>
+#include <QContextMenuEvent>
+#include <QFrame>
+#include <QHideEvent>
 #include <QDesktopServices>
-#include <QDir>
-#include <QFileDialog>
-#include <QMessageBox>
-#include <QMenu>
 #include <QProcess>
-#include <QStandardPaths>
-#include <QFile>
 #include <QMouseEvent>
 #include <QTemporaryDir>
 
@@ -756,6 +759,133 @@ private:
 };
 
 /* ------------------------------------------------------------------------- */
+/* In-panel context menu                                                     */
+/* ------------------------------------------------------------------------- */
+
+/*
+ * The panel is a layer-shell surface.  A native popup (QMenu) cannot be placed
+ * reliably relative to it: Qt does not know the layer-shell surface position,
+ * and on some compositors the popup ends up underneath the overlay surface.
+ * Like the QML rewrite on the main branch (Popup.Item) the menu is therefore
+ * rendered inside the panel itself, above the normal contents.
+ */
+
+struct ContextMenuEntry
+{
+    enum Kind { Action, Separator };
+
+    Kind kind = Action;
+    QString id;
+    QString text;
+    bool checkable = false;
+    bool checked = false;
+};
+
+class InPanelMenu : public QFrame
+{
+    Q_OBJECT
+
+public:
+    explicit InPanelMenu(const QVector<ContextMenuEntry> &entries, QWidget *parent = nullptr)
+        : QFrame(parent)
+    {
+        setObjectName(QStringLiteral("portalContextMenu"));
+        setAttribute(Qt::WA_StyledBackground, true);
+        setStyleSheet(QStringLiteral(
+            "QFrame#portalContextMenu { background: rgba(30,30,36,0.97);"
+            " border: 1px solid rgba(255,255,255,0.14); border-radius: 10px; }"));
+
+        QFont itemFont = font();
+        itemFont.setPixelSize(12);
+        const QFontMetrics metrics(itemFont);
+        int width = 184;
+        for (const ContextMenuEntry &entry : entries) {
+            if (entry.kind == ContextMenuEntry::Action) {
+                width = qMax(width, metrics.horizontalAdvance(entry.text) +
+                                        (entry.checkable ? 64 : 36));
+            }
+        }
+        width = qMin(width, 320);
+
+        auto *layout = new QVBoxLayout(this);
+        layout->setContentsMargins(6, 6, 6, 6);
+        layout->setSpacing(2);
+
+        for (const ContextMenuEntry &entry : entries) {
+            if (entry.kind == ContextMenuEntry::Separator) {
+                auto *line = new QFrame(this);
+                line->setFixedHeight(1);
+                line->setStyleSheet(
+                    QStringLiteral("background: rgba(255,255,255,0.14); border: none;"));
+                layout->addSpacing(3);
+                layout->addWidget(line);
+                layout->addSpacing(3);
+                continue;
+            }
+
+            auto *button = new QPushButton(this);
+            button->setText((entry.checkable
+                                 ? (entry.checked ? QStringLiteral("✓  ") : QStringLiteral("     "))
+                                 : QString()) +
+                            entry.text);
+            button->setCursor(Qt::PointingHandCursor);
+            button->setFocusPolicy(Qt::NoFocus);
+            button->setFixedHeight(28);
+            button->setStyleSheet(QStringLiteral(
+                "QPushButton { color: rgba(255,255,255,0.92); background: transparent;"
+                " border: none; border-radius: 6px; padding: 3px 10px; font-size: 12px;"
+                " text-align: left; }"
+                "QPushButton:hover { background: rgba(255,255,255,0.14); }"
+                "QPushButton:pressed { background: rgba(255,255,255,0.22); }"));
+            const QString id = entry.id;
+            connect(button, &QPushButton::clicked, this,
+                    [this, id]() { Q_EMIT triggered(id); });
+            layout->addWidget(button);
+        }
+
+        setFixedWidth(width);
+        adjustSize();
+    }
+
+    QSize menuSize() const { return sizeHint(); }
+
+signals:
+    void triggered(const QString &id);
+};
+
+/** Transparent hit area that closes the menu when the user clicks elsewhere. */
+class MenuBackdrop : public QWidget
+{
+    Q_OBJECT
+
+public:
+    explicit MenuBackdrop(QWidget *parent = nullptr)
+        : QWidget(parent)
+    {
+        setObjectName(QStringLiteral("portalContextMenuBackdrop"));
+        setAttribute(Qt::WA_NoSystemBackground);
+        setAttribute(Qt::WA_TranslucentBackground);
+    }
+
+signals:
+    void clicked();
+
+protected:
+    void paintEvent(QPaintEvent *event) override
+    {
+        Q_UNUSED(event)
+        QPainter painter(this);
+        painter.fillRect(rect(), QColor(0, 0, 0, 1));
+    }
+
+    void mousePressEvent(QMouseEvent *event) override
+    {
+        event->accept();
+        Q_EMIT clicked();
+    }
+};
+
+/* ------------------------------------------------------------------------- */
 /* Panel                                                                     */
 /* ------------------------------------------------------------------------- */
 
@@ -875,14 +1005,7 @@ void PortalPanel::setupUi()
 
     connect(m_zone, &PortalZone::portalRequested, this, [this]() {
         PortalClient *portal = PortalClient::instance();
-        QScreen *scr = screen() ? screen() : QGuiApplication::primaryScreen();
-        QRect panelRect = geometry();
-        if (scr) {
-            const QRect avail = scr->availableGeometry();
-            panelRect = QRect(avail.x() + avail.width() - width() - m_rightMargin,
-                              avail.y() + avail.height() - height() - m_bottomMargin,
-                              width(), height());
-        }
+        const QRect panelRect = panelGlobalRect();
         if (portal->beginPortal(panelRect)) {
             m_zone->setPortalActive(true);
             m_zone->showMessage(tr("移动到目标窗口上松手"));
@@ -998,7 +1121,10 @@ void PortalPanel::setupUi()
                 files.append(url.toLocalFile());
             }
         }
-        const QString text = mime->hasText() ? mime->text() : QString();
+        /* A file drag also carries the local path as text; it is represented
+         * by the attachment itself, so do not paste a duplicate path. */
+        const QString text =
+            mime->hasText() && files.isEmpty() ? mime->text() : QString();
         Q_EMIT askWithContent(text, files);
     });
     connect(m_factory, &ContentFactory::heightChanged, this, [this]() { refreshLayout(); });
@@ -1109,13 +1235,37 @@ void PortalPanel::toast(const QString &text)
 
 void PortalPanel::showTextDialog(const QString &title, const QString &text)
 {
-    QMessageBox box(QMessageBox::Information, title, text.left(4000), QMessageBox::Ok, this);
-    QPushButton *copyButton = box.addButton(tr("复制"), QMessageBox::ActionRole);
-    box.exec();
-    if (box.clickedButton() == copyButton) {
-        QApplication::clipboard()->setText(text);
-        toast(tr("已复制"));
-    }
+    auto *dialog = new Dtk::Widget::DDialog;
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setWindowTitle(title);
+
+    auto *edit = new Dtk::Widget::DTextEdit(dialog);
+    edit->setReadOnly(true);
+    edit->setPlainText(text.left(4000));
+    const bool dark = dialog->palette().color(QPalette::Window).lightness() < 128;
+    const QColor baseColor = dark ? QColor(38, 38, 42) : QColor(255, 255, 255);
+    const QColor textColor = dark ? QColor(235, 235, 235) : QColor(30, 30, 30);
+    edit->setStyleSheet(
+        QStringLiteral("QTextEdit { color: %1; background-color: %2;"
+                       " border: 1px solid %3; border-radius: 6px; padding: 6px; }")
+            .arg(textColor.name(), baseColor.name(),
+                 dark ? QStringLiteral("rgba(255,255,255,0.14)")
+                      : QStringLiteral("rgba(0,0,0,0.12)")));
+    edit->setMinimumSize(560, 320);
+    dialog->addContent(edit);
+
+    const int copyButton = dialog->addButton(tr("复制"));
+    dialog->addButton(tr("关闭"), true);
+    dialog->setOnButtonClickedClose(false);
+    connect(dialog, &Dtk::Widget::DDialog::buttonClicked, dialog,
+            [this, dialog, text, copyButton](int index, const QString &) {
+                if (index == copyButton) {
+                    QApplication::clipboard()->setText(text);
+                    toast(tr("已复制"));
+                }
+                dialog->close();
+            });
+    dialog->show();
 }
 
 void PortalPanel::runFactoryAction(const QString &id, const DropContent &content)
@@ -1212,7 +1362,7 @@ void PortalPanel::runFactoryAction(const QString &id, const DropContent &content
             toast(tr("没有可保存的图片"));
             return;
         }
-        const QString path = QFileDialog::getSaveFileName(
+        const QString path = Dtk::Widget::DFileDialog::getSaveFileName(
             this, tr("保存图片"), QStringLiteral("image.png"), tr("图片 (*.png *.jpg)"));
         if (!path.isEmpty()) {
             content.image.save(path);
@@ -1269,6 +1419,7 @@ void PortalPanel::popup()
 
 void PortalPanel::dismiss()
 {
+    closeContextMenu();
     hide();
 }
 
@@ -1370,122 +1521,172 @@ void PortalPanel::mouseReleaseEvent(QMouseEvent *event)
 
 void PortalPanel::contextMenuEvent(QContextMenuEvent *event)
 {
-    showContextMenu(event->globalPos());
+    showContextMenu(event->pos());
     event->accept();
 }
 
-void PortalPanel::showContextMenu(const QPoint &globalPos)
+QRect PortalPanel::panelGlobalRect() const
 {
-    QMenu menu(this);
-
-    QAction *fixedPosition = menu.addAction(tr("固定位置"));
-    fixedPosition->setCheckable(true);
-    fixedPosition->setChecked(m_fixedPosition);
-
-    QAction *resetPosition = menu.addAction(tr("恢复默认位置"));
-
-    QAction *fixedSize = menu.addAction(tr("固定大小"));
-    fixedSize->setCheckable(true);
-    fixedSize->setChecked(m_fixedSize);
-
-    QAction *autoHideFullscreen = menu.addAction(tr("全屏时隐藏"));
-    autoHideFullscreen->setCheckable(true);
-    autoHideFullscreen->setChecked(
-        Config::instance()->getBool(QStringLiteral("panel/hideOnFullscreen"), false));
-
-    menu.addSeparator();
-
-    const QString slimy = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) +
-                          QStringLiteral("/GXDE/gxde-k9/slimy/gxde-ai-see.slimy");
-    QAction *autostart = menu.addAction(tr("开机自启与后台保活"));
-    autostart->setCheckable(true);
-    autostart->setChecked(QFile::exists(slimy));
-
-    menu.addSeparator();
-    QAction *clear = menu.addAction(tr("清空暂存区"));
-    QAction *hide = menu.addAction(tr("隐藏"));
-    QAction *about = menu.addAction(tr("关于"));
-    QAction *quit = menu.addAction(tr("退出"));
-
-    menu.ensurePolished();
-    const QSize menuSize = menu.sizeHint();
-    QPoint menuPos = globalPos;
     QScreen *scr = screen() ? screen() : QGuiApplication::primaryScreen();
-    if (scr) {
+    if (scr && QGuiApplication::platformName().startsWith(QLatin1String("wayland"))) {
+        /* Anchored bottom-right inside the compositor's usable area; this is
+         * the rectangle used for the portal jump. */
         const QRect available = scr->availableGeometry();
-        if (menuPos.y() + menuSize.height() > available.bottom()) {
-            menuPos.setY(globalPos.y() - menuSize.height());
-        }
-        if (menuPos.y() < available.top()) {
-            menuPos.setY(available.top());
-        }
-        if (menuPos.x() + menuSize.width() > available.right()) {
-            menuPos.setX(available.right() - menuSize.width());
-        }
+        return QRect(available.right() - width() - m_rightMargin + 1,
+                     available.bottom() - height() - m_bottomMargin + 1, width(),
+                     height());
     }
-    menuPos.setX(globalPos.x() - menuSize.width() - 10);
-    if (scr) {
-        const QRect available = scr->availableGeometry();
-        if (menuPos.x() < available.left()) {
-            menuPos.setX(available.left());
-        }
-    }
-    QAction *chosen = menu.exec(menuPos);
-    if (!chosen) {
+
+    QRect rect = geometry();
+    rect.moveTopLeft(mapToGlobal(QPoint(0, 0)));
+    return rect;
+}
+
+void PortalPanel::showContextMenu(const QPoint &localPos)
+{
+    if (m_contextMenu) {
+        closeContextMenu();
         return;
     }
 
-    if (chosen == hide) {
+    QVector<ContextMenuEntry> entries;
+    const auto addAction = [&entries](const QString &id, const QString &text,
+                                      bool checkable = false, bool checked = false) {
+        ContextMenuEntry entry;
+        entry.id = id;
+        entry.text = text;
+        entry.checkable = checkable;
+        entry.checked = checked;
+        entries.append(entry);
+    };
+    const auto addSeparator = [&entries]() {
+        ContextMenuEntry entry;
+        entry.kind = ContextMenuEntry::Separator;
+        entries.append(entry);
+    };
+
+    addAction(QStringLiteral("fixed_position"), tr("固定位置"), true, m_fixedPosition);
+    addAction(QStringLiteral("reset_position"), tr("恢复默认位置"));
+    addAction(QStringLiteral("fixed_size"), tr("固定大小"), true, m_fixedSize);
+    addAction(QStringLiteral("hide_fullscreen"), tr("全屏时隐藏"), true,
+              Config::instance()->getBool(QStringLiteral("panel/hideOnFullscreen"), false));
+    addSeparator();
+    addAction(QStringLiteral("service"),
+              PortalService::instance()->enabled() ? tr("关闭服务") : tr("启动服务"));
+    addSeparator();
+    addAction(QStringLiteral("clear"), tr("清空暂存区"));
+    addAction(QStringLiteral("hide"), tr("隐藏"));
+    addAction(QStringLiteral("about"), tr("关于"));
+
+    m_contextMenuBackdrop = new MenuBackdrop(this);
+    m_contextMenuBackdrop->setGeometry(rect());
+    connect(m_contextMenuBackdrop, &MenuBackdrop::clicked, this,
+            &PortalPanel::closeContextMenu);
+    m_contextMenuBackdrop->show();
+    m_contextMenuBackdrop->raise();
+
+    m_contextMenu = new InPanelMenu(entries, this);
+    const QSize menuSize = m_contextMenu->menuSize();
+
+    int clickY = localPos.y();
+    const int previousHeight = height();
+    if (previousHeight < menuSize.height() + 16) {
+        /* Very short panel (staging-only mode): grow upwards just enough for
+         * the menu, then restore it when the menu closes. */
+        resize(width(), menuSize.height() + 16);
+        clickY += height() - previousHeight;
+        m_contextMenuBackdrop->setGeometry(rect());
+    }
+
+    const int margin = 8;
+    const int x = qMax(margin, qMin(localPos.x() + 4, width() - menuSize.width() - margin));
+    const int y = qMax(margin, qMin(clickY + 4, height() - menuSize.height() - margin));
+    m_contextMenu->setGeometry(x, y, menuSize.width(), menuSize.height());
+    connect(m_contextMenu, &InPanelMenu::triggered, this, [this](const QString &id) {
+        closeContextMenu();
+        applyContextMenuAction(id);
+    });
+    m_contextMenu->show();
+    m_contextMenu->raise();
+}
+
+void PortalPanel::closeContextMenu()
+{
+    if (!m_contextMenu && !m_contextMenuBackdrop) {
+        return;
+    }
+    destroyContextMenu();
+    refreshLayout();
+}
+
+void PortalPanel::destroyContextMenu()
+{
+    if (m_contextMenu) {
+        m_contextMenu->hide();
+        m_contextMenu->deleteLater();
+        m_contextMenu = nullptr;
+    }
+    if (m_contextMenuBackdrop) {
+        m_contextMenuBackdrop->hide();
+        m_contextMenuBackdrop->deleteLater();
+        m_contextMenuBackdrop = nullptr;
+    }
+}
+
+void PortalPanel::applyContextMenuAction(const QString &id)
+{
+    if (id == QLatin1String("hide")) {
         Q_EMIT hideRequested();
         return;
     }
-    if (chosen == fixedPosition) {
-        m_fixedPosition = fixedPosition->isChecked();
+    if (id == QLatin1String("fixed_position")) {
+        m_fixedPosition = !m_fixedPosition;
         saveWindowState();
-    } else if (chosen == resetPosition) {
+    } else if (id == QLatin1String("reset_position")) {
         m_rightMargin = 16;
         m_bottomMargin = 16;
         applyMargins();
         saveWindowState();
-    } else if (chosen == fixedSize) {
-        m_fixedSize = fixedSize->isChecked();
+    } else if (id == QLatin1String("fixed_size")) {
+        m_fixedSize = !m_fixedSize;
         saveWindowState();
-    } else if (chosen == autoHideFullscreen) {
-        Config::instance()->set(QStringLiteral("panel/hideOnFullscreen"),
-                                autoHideFullscreen->isChecked());
+    } else if (id == QLatin1String("hide_fullscreen")) {
+        const bool enable =
+            !Config::instance()->getBool(QStringLiteral("panel/hideOnFullscreen"), false);
+        Config::instance()->set(QStringLiteral("panel/hideOnFullscreen"), enable);
         Config::instance()->sync();
-    } else if (chosen == autostart) {
-        const bool enable = autostart->isChecked();
-        QDir().mkpath(QFileInfo(slimy).absolutePath());
-        if (enable) {
-            QFile file(slimy);
-            if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-                QTextStream out(&file);
-                out << "#!/bin/bash\n"
-                       "PID_DIR=\"${PID_DIR:-/tmp/GXDE/gxde-k9/}\"\n"
-                       "mkdir -p \"$PID_DIR\"\n"
-                       "PID_FILE=\"$PID_DIR/gxde-ai-see.pid\"\n"
-                       "if [ -f \"$PID_FILE\" ]; then\n"
-                       "  PID=$(cat \"$PID_FILE\" 2>/dev/null)\n"
-                       "  [ -n \"$PID\" ] && [ -e \"/proc/$PID\" ] && exit 0\n"
-                       "  rm -f \"$PID_FILE\"\n"
-                       "fi\n"
-                       "/usr/bin/gxde-ai-see --daemon >/dev/null 2>&1 &\n"
-                       "echo $! > \"$PID_FILE\"\n";
-                file.close();
-                file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner |
-                                    QFileDevice::ExeOwner);
-            }
+    } else if (id == QLatin1String("service")) {
+        if (PortalService::instance()->enabled()) {
+            PortalService::instance()->setEnabled(false);
+            showServiceStoppedDialog();
         } else {
-            QFile::remove(slimy);
+            PortalService::instance()->setEnabled(true);
+            toast(tr("服务已启动"));
         }
-        toast(enable ? tr("已开启开机自启与保活") : tr("已关闭开机自启与保活"));
-    } else if (chosen == clear) {
+    } else if (id == QLatin1String("clear")) {
         m_model->clearAll();
-    } else if (chosen == about) {
+    } else if (id == QLatin1String("about")) {
         showAboutDialog(nullptr, tr("传送门、内容工厂、待办与小埃同学对话。"));
-    } else if (chosen == quit) {
-        QCoreApplication::quit();
+    }
+}
+
+void PortalPanel::showServiceStoppedDialog()
+{
+    Dtk::Widget::DDialog dialog;
+    dialog.setWindowTitle(tr("传送门服务"));
+
+    auto *message = new Dtk::Widget::DLabel(
+        tr("传送门服务已关闭。\n已取消开机自启与后台保活，传送门面板不再响应拖拽。\n\n"
+           "可以在小埃同学 Chat 的「设置」中重新打开传送门功能。"));
+    message->setWordWrap(true);
+    message->setMinimumWidth(440);
+    dialog.addContent(message);
+
+    const int settingsButton = dialog.addButton(
+        tr("打开对话设置"), true, Dtk::Widget::DDialog::ButtonRecommend);
+    dialog.addButton(tr("知道了"));
+    if (dialog.exec() == settingsButton) {
+        Q_EMIT openChatSettingsRequested();
     }
 }
 
@@ -1511,6 +1712,12 @@ void PortalPanel::stopPortalSuppression()
     if (m_zone) {
         m_zone->setSuppressPortal(false);
     }
+}
+
+void PortalPanel::hideEvent(QHideEvent *event)
+{
+    closeContextMenu();
+    Dtk::Widget::DBlurEffectWidget::hideEvent(event);
 }
 
 void PortalPanel::showEvent(QShowEvent *event)

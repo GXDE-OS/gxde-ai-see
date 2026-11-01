@@ -14,17 +14,8 @@
 
 namespace {
 
-bool prepareRequest(const QVector<ChatMessage> &messages, bool stream,
-                    const QJsonArray &tools, const QJsonArray &extraMessages,
-                    QNetworkRequest *request, QByteArray *body, QString *error)
+QString apiBaseUrl()
 {
-    const QString apiKey =
-        Config::instance()->get(QStringLiteral("chat/apiKey")).toString().trimmed();
-    if (apiKey.isEmpty()) {
-        *error = QObject::tr("还没有配置 API Key。请先点右上角设置，填入 DeepSeek API Key。");
-        return false;
-    }
-
     QString baseUrl = Config::instance()
                           ->get(QStringLiteral("chat/baseUrl"),
                                 QStringLiteral("https://api.deepseek.com"))
@@ -33,15 +24,34 @@ bool prepareRequest(const QVector<ChatMessage> &messages, bool stream,
     while (baseUrl.endsWith(QLatin1Char('/'))) {
         baseUrl.chop(1);
     }
-    if (!baseUrl.endsWith(QStringLiteral("/chat/completions"))) {
-        baseUrl += QStringLiteral("/chat/completions");
+    if (baseUrl.endsWith(QStringLiteral("/chat/completions"))) {
+        baseUrl.chop(int(qstrlen("/chat/completions")));
     }
+    return baseUrl;
+}
+
+bool prepareRequest(const QVector<ChatMessage> &messages, bool stream,
+                    const QJsonArray &tools, const QJsonArray &extraMessages,
+                    QNetworkRequest *request, QByteArray *body, QString *error)
+{
+    const QString apiKey = chatApiKey();
+    if (apiKey.isEmpty()) {
+        *error = QObject::tr("还没有配置 API Key。请先点右上角设置，填入 DeepSeek API Key。");
+        return false;
+    }
+
+    const QString baseUrl = apiBaseUrl();
 
     QJsonArray jsonMessages;
     for (const ChatMessage &message : messages) {
         QJsonObject object;
         object.insert(QStringLiteral("role"), message.role);
-        object.insert(QStringLiteral("content"), message.content);
+        if (message.role == QStringLiteral("user") && !message.attachments.isEmpty()) {
+            object.insert(QStringLiteral("content"),
+                          AttachmentUtils::contentJson(message.content, message.attachments));
+        } else {
+            object.insert(QStringLiteral("content"), message.content);
+        }
         jsonMessages.append(object);
     }
 
@@ -62,7 +72,7 @@ bool prepareRequest(const QVector<ChatMessage> &messages, bool stream,
     }
     payload.insert(QStringLiteral("temperature"), 0.7);
 
-    *request = QNetworkRequest{QUrl(baseUrl)};
+    *request = QNetworkRequest{QUrl(baseUrl + QStringLiteral("/chat/completions"))};
     request->setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     request->setRawHeader("Authorization", "Bearer " + apiKey.toUtf8());
     request->setAttribute(QNetworkRequest::RedirectPolicyAttribute,
@@ -88,6 +98,16 @@ QString errorFromBody(const QByteArray &body, const QString &fallback)
 }
 
 } // namespace
+
+QString chatApiKey()
+{
+    return Config::instance()->get(QStringLiteral("chat/apiKey")).toString().trimmed();
+}
+
+QString chatApiBaseUrl()
+{
+    return apiBaseUrl();
+}
 
 ChatClient::ChatClient(QObject *parent)
     : QObject(parent)
