@@ -179,7 +179,14 @@ target_include_directories(gxde-ai-see-themetest PRIVATE src)
 target_link_libraries(gxde-ai-see-themetest PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets)
 
 # translations
-find_program(LRELEASE_EXECUTABLE NAMES lrelease lrelease6)
+find_package(Qt6 QUIET COMPONENTS LinguistTools)
+if (TARGET Qt6::lrelease)
+    set(LRELEASE_EXECUTABLE Qt6::lrelease)
+else ()
+    # 优先使用 Qt6 自带的 lrelease，避免命中 qtchooser 的 /usr/bin/lrelease 包装脚本
+    find_program(LRELEASE_EXECUTABLE NAMES lrelease6 lrelease
+        HINTS /usr/lib/qt6/bin /usr/lib64/qt6/bin)
+endif ()
 file(GLOB TS_FILES ${CMAKE_CURRENT_SOURCE_DIR}/translations/*.ts)
 if (LRELEASE_EXECUTABLE AND TS_FILES)
     set(QM_FILES)
