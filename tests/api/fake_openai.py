@@ -10,8 +10,9 @@ last message:
 * user text with "shell"   -> a run_shell_command call that creates a file
 * user text with "mcp"     -> a call of the MCP ``echo`` tool
 * user text with "think"   -> reasoning_content first, then "想好了"
-* anything else            -> "users=<n> replay=<yes|no>", which tells the
-  test whether the session was reused (n grows) or rebuilt from a replay.
+* anything else            -> "users=<n> replay=<yes|no> model=<model>", which
+  tells the test whether the session was reused (n grows) or rebuilt from a
+  replay, and which model answered.
 """
 
 import json
@@ -70,8 +71,8 @@ class Handler(BaseHTTPRequestHandler):
         else:
             replay = any("此前的记录" in text_of(m) for m in users)
             chunks = [chunk({"role": "assistant",
-                             "content": "users=%d replay=%s" % (len(users),
-                                                                "yes" if replay else "no")},
+                             "content": "users=%d replay=%s model=%s" % (
+                                 len(users), "yes" if replay else "no", body.get("model", ""))},
                             "stop")]
 
         self.send_response(200)
