@@ -6,6 +6,7 @@
 
 #include <DMainWindow>
 
+class ChatBridge;
 class QWebEngineView;
 
 class WebChatWindow : public Dtk::Widget::DMainWindow
@@ -21,8 +22,16 @@ public:
     /* Start conversation with given prompts and files */
     void startConversationWith(const QString &text, const QStringList &files);
 
+private slots:
+    void onNotificationSent(uint id);
+    void onNotificationAction(uint id, const QString &action);
+
 private:
+    void notifyPermission(const QString &title);
+
+    ChatBridge *m_bridge = nullptr;
     QWebEngineView *m_view = nullptr;
+    uint m_notificationId = 0;
 };
 
 # endif  /* WEB_CHAT_WINDOW_H */

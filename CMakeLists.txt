@@ -12,7 +12,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network DBus Svg Qml Quick QuickControls2 WebEngineWidgets)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network DBus Svg Qml Quick QuickControls2 WebEngineWidgets WebChannel)
 find_package(Qt6 OPTIONAL_COMPONENTS WaylandClient WaylandScannerTools)
 find_package(GxdeBerneseQt6 REQUIRED)
 find_package(PkgConfig REQUIRED)
@@ -45,6 +45,7 @@ set(GXDE_AI_SEE_SOURCES
     src/chat/aicoreaccounts.cpp
     src/chat/chatclient.cpp
     src/chat/webchatwindow.cpp
+    src/chat/chatbridge.cpp
     src/chat/chattheme.cpp
     src/ui/mimedroparea.cpp
     src/ui/pointertravel.cpp
@@ -158,6 +159,7 @@ target_link_libraries(gxde-ai-see PRIVATE
     Qt6::Quick
     Qt6::QuickControls2
     Qt6::WebEngineWidgets
+    Qt6::WebChannel
     GxdeBernese::Qt6
     ${DTK2WIDGET_LIBRARIES}
     ${DTK6GUI_LIBRARIES}

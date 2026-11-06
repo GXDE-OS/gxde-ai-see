@@ -5,9 +5,12 @@
 
 #include "config.h"
 #include "aicoreaccounts.h"
+#include "chatbridge.h"
 
 #include <DTitlebar>
 #include <QApplication>
+#include <QDBusConnection>
+#include <QDBusMessage>
 #include <QGuiApplication>
 #include <QScreen>
 #include <QUrl>
@@ -43,6 +46,7 @@ void migrateLegacySettings()
 
 WebChatWindow::WebChatWindow(QWidget *parent)
     : Dtk::Widget::DMainWindow(parent)
+    , m_bridge(new ChatBridge(this))
     , m_view(new QWebEngineView(this))
 {
     setWindowTitle(tr("小埃同学"));
@@ -55,7 +59,22 @@ WebChatWindow::WebChatWindow(QWidget *parent)
     migrateLegacySettings();
 
     setCentralWidget(m_view);
+    m_bridge->install(m_view->page());
     m_view->load(webUiUrl());
+
+    // Send a notifition if user's permission is EXPLICITLY required
+    // This is common when a tool call/shell command is pending
+    connect(m_bridge, &ChatBridge::permissionPending, this, [this](const QString &title) {
+        if (!isActiveWindow()) {
+            notifyPermission(title);
+        }
+    });
+
+    QDBusConnection::sessionBus().connect(
+        QStringLiteral("org.freedesktop.Notifications"),
+        QStringLiteral("/org/freedesktop/Notifications"),
+        QStringLiteral("org.freedesktop.Notifications"), QStringLiteral("ActionInvoked"), this,
+        SLOT(onNotificationAction(uint, QString)));
 
     if (QScreen *screen = QGuiApplication::primaryScreen()) {
         move(screen->availableGeometry().center() - rect().center());
@@ -76,8 +95,33 @@ void WebChatWindow::activateForAsk()
 
 void WebChatWindow::startConversationWith(const QString &text, const QStringList &files)
 {
-    // TODO: hand the content to the page once the QWebChannel bridge exists.
-    Q_UNUSED(text)
-    Q_UNUSED(files)
     activateForAsk();
+    m_bridge->ask(text, files);
+}
+
+void WebChatWindow::notifyPermission(const QString &title)
+{
+    QDBusMessage notification = QDBusMessage::createMethodCall(
+        QStringLiteral("org.freedesktop.Notifications"),
+        QStringLiteral("/org/freedesktop/Notifications"),
+        QStringLiteral("org.freedesktop.Notifications"), QStringLiteral("Notify"));
+    notification << QStringLiteral("gxde-ai-see") << m_notificationId
+                 << QStringLiteral("gxde-ai-see") << tr("小埃同学需要你确认")
+                 << tr("小埃想要执行：%1\n请回到对话窗口允许或拒绝。").arg(title)
+                 << QStringList{ QStringLiteral("default"), tr("查看") } << QVariantMap()
+                 << 0;
+    QDBusConnection::sessionBus().callWithCallback(notification, this,
+                                                   SLOT(onNotificationSent(uint)));
+}
+
+void WebChatWindow::onNotificationSent(uint id)
+{
+    m_notificationId = id;
+}
+
+void WebChatWindow::onNotificationAction(uint id, const QString &action)
+{
+    if (id == m_notificationId && !action.isEmpty()) {
+        activateForAsk();
+    }
 }

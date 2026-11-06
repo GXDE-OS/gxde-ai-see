@@ -1,0 +1,86 @@
+// SPDX-FileCopyrightText: 2026 GXDE OS Team
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#ifndef CHAT_BRIDGE_H
+#define CHAT_BRIDGE_H
+
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QJsonValue>
+#include <QList>
+#include <QObject>
+#include <QString>
+#include <QStringList>
+
+#include "aicore.h"
+
+class ChatClient;
+class QWebEnginePage;
+
+// This class is responsible for Web UI IPC (Qt backend <---> React Web frontend)
+class ChatBridge : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
+    Q_PROPERTY(QString mode READ mode WRITE setMode NOTIFY modeChanged)
+
+public:
+    explicit ChatBridge(QObject *parent = nullptr);
+
+    void install(QWebEnginePage *page);
+
+    bool busy() const { return !m_turnConversation.isEmpty(); }
+    QString mode() const;
+    void setMode(const QString &modeId);
+    void ask(const QString &text, const QStringList &files);
+    Q_INVOKABLE void ready();
+    Q_INVOKABLE QJsonArray modes() const;
+    Q_INVOKABLE void send(const QString &conversationId, const QJsonArray &history);
+    Q_INVOKABLE void cancel();
+    Q_INVOKABLE void forget(const QString &conversationId);
+    Q_INVOKABLE void resetSessions();
+    Q_INVOKABLE void answerPermission(const QString &key, const QString &optionId);
+    Q_INVOKABLE QJsonObject loadConversations() const;
+    Q_INVOKABLE bool saveConversations(const QJsonObject &store);
+    Q_INVOKABLE void listAccounts(int callId);
+    Q_INVOKABLE void currentAccount(int callId);
+    Q_INVOKABLE void saveAccount(int callId, const QJsonObject &account, const QString &apiKey);
+    Q_INVOKABLE void deleteAccount(int callId, const QString &id);
+    Q_INVOKABLE void activateAccount(int callId, const QString &id, const QString &model);
+
+signals:
+    void busyChanged();
+    void modeChanged();
+
+    void delta(const QString &conversationId, const QString &text);
+    void thought(const QString &conversationId, const QString &text);
+    /** \a status: pending, in_progress, completed, failed */
+    void toolCall(const QString &conversationId, const QString &toolCallId, const QString &title,
+                  const QString &kind, const QString &status);
+
+    void permissionRequested(const QString &conversationId, const QString &key,
+                             const QJsonObject &toolCall, const QJsonArray &options);
+    void permissionDropped(const QString &key);
+    void finished(const QString &conversationId, const QString &stopReason);
+    void failed(const QString &conversationId, const QString &error);
+    void activity(const QString &conversationId);
+
+    void accountsChanged();
+    void askRequested(const QString &text, const QStringList &files);
+    void replied(int callId, const QJsonValue &result, const QString &error);
+
+    void permissionPending(const QString &title);
+
+private:
+    AiCore::Callback replyTo(int callId);
+    void endTurn(const QString &stopReason);
+    void pageReset();
+
+    ChatClient *m_client = nullptr;
+    QString m_turnConversation;
+    QString m_storePath;
+    bool m_pageReady = false;
+    QList<QPair<QString, QStringList>> m_pendingAsks;
+};
+
+#endif  /* CHAT_BRIDGE_H */
