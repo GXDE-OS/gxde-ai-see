@@ -141,6 +141,9 @@ signals:
     void zoneMessage(const QString &text);
     void toast(const QString &text);
 
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
 private:
     void setupWindow();
     void updateMode();
@@ -150,6 +153,7 @@ private:
     void showTextDialog(const QString &title, const QString &text);
     void openPortal();
     void setPortalSuppressed(bool suppressed);
+    void liftPortalSuppression();
     void setCompositorPortalActive(bool active);
     void applyMargins();
     void followPointer(const QPointF &travel);
@@ -181,6 +185,7 @@ private:
     bool m_stagingOnly = false;
     bool m_dragging = false;
     bool m_portalSuppressed = false;
+    bool m_ownDrag = false;
     bool m_compositorPortalActive = false;
     bool m_fixedPosition = true;
     bool m_fixedSize = false;

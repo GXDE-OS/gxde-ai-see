@@ -111,12 +111,7 @@ PortalPanel::PortalPanel(StagingModel *model, QObject *parent)
         if (m_window && m_window->geometry().contains(QCursor::pos())) {
             return;
         }
-        m_suppressWatch->stop();
-        setPortalSuppressed(false);
-        /* the compositor overview follows the pointer anywhere on screen */
-        if (PortalClient::instance()->available()) {
-            openPortal();
-        }
+        liftPortalSuppression();
     });
 
     connect(m_model, &StagingModel::countChanged, this, [this]() {
@@ -177,6 +172,7 @@ void PortalPanel::setupWindow()
     }
     m_window->setFlags(flags);
     m_window->setColor(Qt::transparent);
+    m_window->installEventFilter(this);
 
 #ifdef GXDE_HAVE_LAYERSHELLQT
     if (isWayland()) {
@@ -586,7 +582,12 @@ void PortalPanel::suppressPortalIfUnderCursor()
     if (!isVisible()) {
         return;
     }
-    /* the drag started on top of the panel: do not jump until it left */
+    
+    if (isWayland()) {
+        m_suppressWatch->stop();
+        setPortalSuppressed(m_ownDrag);
+        return;
+    }
     const bool under = m_window->geometry().contains(QCursor::pos());
     setPortalSuppressed(under);
     if (under) {
@@ -594,6 +595,24 @@ void PortalPanel::suppressPortalIfUnderCursor()
     } else {
         m_suppressWatch->stop();
     }
+}
+
+void PortalPanel::liftPortalSuppression()
+{
+    m_suppressWatch->stop();
+    setPortalSuppressed(false);
+    if (PortalClient::instance()->available()) {
+        openPortal();
+    }
+}
+
+bool PortalPanel::eventFilter(QObject *watched, QEvent *event)
+{
+    if (watched == m_window && event->type() == QEvent::DragLeave && m_portalSuppressed
+        && isWayland()) {
+        liftPortalSuppression();
+    }
+    return QObject::eventFilter(watched, event);
 }
 
 void PortalPanel::stopPortalSuppression()
@@ -810,7 +829,9 @@ void PortalPanel::startItemDrag(int row)
         drag->setPixmap(icon.pixmap(48, 48));
     }
 
+    m_ownDrag = true;
     const Qt::DropAction action = drag->exec(Qt::CopyAction | Qt::MoveAction, Qt::CopyAction);
+    m_ownDrag = false;
     const bool internalMove = mime->property("gxdeInternalMove").toBool();
     drag->deleteLater();
     if (internalMove) {
