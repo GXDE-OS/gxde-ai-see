@@ -1,3 +1,9 @@
+gxde-ai-see (1.0.1~beta1) unstable; urgency=medium
+
+  * 使用GXDE AI Core作为后端
+
+ -- CharOfString <root@charofstring.cc>  Fri, 06 Nov 2026 00:16:55 -0600
+
 gxde-ai-see (1.0.0~beta4) unstable; urgency=medium
 
   * 内容工厂空闲时改为与传送门一致的虚线大提示块（PortalZoneItem）
