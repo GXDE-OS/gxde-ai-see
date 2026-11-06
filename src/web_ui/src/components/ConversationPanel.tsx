@@ -3,10 +3,13 @@
  * ConversationHeader and ConversationContent (MIT, see src/vendor/dsh/README.md).
  */
 import { useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
 import clsx from 'clsx'
 import { t } from '../chat/strings'
+import type { Approval } from '../chat/useChat'
 import type { Conversation } from '../ipc/bridge'
 import cr from '../vendor/dsh/conversation/ConversationRoot.module.css'
+import { ApprovalCard } from './ApprovalCard'
 import { ChatView } from './ChatView'
 import { Composer, HeroShell } from './Composer'
 
@@ -40,11 +43,27 @@ function useComposerHeight(scroller: HTMLElement | null, seat: HTMLElement | nul
 export interface ConversationPanelProps {
   conversation: Conversation | undefined
   running: boolean
+  /** Another conversation's turn is running. */
+  busy: boolean
+  activityAt: number
+  /** The current conversation's pending confirmation. */
+  approval: Approval | undefined
+  draft: string
+  onDraftChange: (text: string) => void
+  tools: ReactNode
+  notice: string | undefined
+  focusRequest: number
   onSend: ((text: string) => void) | undefined
   onStop: () => void
+  onAnswer: (key: string, optionId: string) => void
+  onRetry: (index: number) => void
+  onEdit: (index: number, text: string) => void
+  onFork: (index: number) => void
 }
 
-export function ConversationPanel({ conversation, running, onSend, onStop }: ConversationPanelProps) {
+export function ConversationPanel({
+  conversation, running, busy, activityAt, approval, draft, onDraftChange, tools, notice, focusRequest, onSend, onStop, onAnswer, onRetry, onEdit, onFork,
+}: ConversationPanelProps) {
   const hero = conversation === undefined
   const phase = hero ? 'hero' : 'active'
   const [body, setBody] = useState<HTMLDivElement | null>(null)
@@ -73,13 +92,45 @@ export function ConversationPanel({ conversation, running, onSend, onStop }: Con
         <div ref={setScroller} className={cr.scrollBody} data-conversation-scroll="">
           {!hero && (
             <div className={cr.viewArea}>
-              <ChatView key={conversation.id} messages={conversation.messages} running={running} scroller={scroller} />
+              <ChatView
+                key={conversation.id}
+                messages={conversation.messages}
+                running={running}
+                activityAt={activityAt}
+                waiting={approval !== undefined}
+                scroller={scroller}
+                onRetry={busy || running ? undefined : onRetry}
+                onEdit={busy || running ? undefined : onEdit}
+                onFork={onFork}
+              />
             </div>
           )}
           <div ref={setSeat} className={cr.composerSeat} data-composer-seat="">
             <div className={clsx(cr.composerStack, hero && cr.composerHero)}>
               {hero && <HeroShell />}
-              <Composer variant={hero ? 'hero' : 'composer'} running={running} onSend={onSend} onStop={onStop} />
+              {approval !== undefined
+                ? (
+                    <ApprovalCard
+                      key={approval.key}
+                      approval={approval}
+                      onAnswer={(optionId) => {
+                        onAnswer(approval.key, optionId)
+                      }}
+                    />
+                  )
+                : (
+                    <Composer
+                      variant={hero ? 'hero' : 'composer'}
+                      text={draft}
+                      onTextChange={onDraftChange}
+                      running={running}
+                      onSend={busy ? undefined : onSend}
+                      onStop={onStop}
+                      tools={tools}
+                      notice={notice}
+                      focusRequest={focusRequest}
+                    />
+                  )}
             </div>
           </div>
         </div>

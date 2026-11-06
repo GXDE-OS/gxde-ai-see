@@ -1,13 +1,27 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
-import type { Bridge, ChatMessage, Conversation, ConversationStore, StopReason } from '../ipc/bridge'
-import { connectBridge } from '../ipc/bridge'
+import { useCallback, useEffect, useReducer, useRef } from 'react'
+import type {
+  Bridge, ChatMessage, Conversation, ConversationStore, PermissionOption, Provider, StopReason, ToolCall, ToolCallStatus,
+} from '../ipc/bridge'
+import { appendReasoning, appendText, closeReply, updateTool } from './reply'
 import { t } from './strings'
+
+export interface Approval {
+  key: string
+  conversationId: string
+  toolCall: ToolCall
+  options: PermissionOption[]
+}
 
 interface State {
   loaded: boolean
   conversations: Conversation[]
   currentId: string | null
   running: string | null
+  /** Last sign of life from the running turn. */
+  activityAt: number
+  approvals: Approval[]
+  /** The last pick, for conversations not started yet. */
+  draftProvider: Provider | undefined
   /** Bumped by every change worth writing to chat.json. */
   revision: number
 }
@@ -15,18 +29,17 @@ interface State {
 type Action =
   | { type: 'load'; store: ConversationStore }
   | { type: 'open'; id: string | null }
+  | { type: 'reveal' }
+  | { type: 'provider'; provider: Provider }
   | { type: 'rename'; id: string; title: string }
   | { type: 'remove'; ids: string[] }
-  | { type: 'send'; conversation: Conversation }
-  | { type: 'delta'; id: string; text: string }
-  | { type: 'end'; id: string; note: string; time: number }
-
-const STOP_NOTES: Partial<Record<StopReason, string>> = {
-  max_tokens: t.stopMaxTokens,
-  max_turn_requests: t.stopMaxTurns,
-  refusal: t.stopRefusal,
-  cancelled: t.stopCancelled,
-}
+  | { type: 'add'; conversation: Conversation }
+  | { type: 'start'; conversation: Conversation }
+  | { type: 'stream'; id: string; time: number; update: (reply: ChatMessage, time: number) => ChatMessage }
+  | { type: 'activity'; id: string; time: number }
+  | { type: 'ask'; approval: Approval }
+  | { type: 'drop'; key: string; time: number }
+  | { type: 'end'; id: string; time: number; stopReason?: StopReason; error?: string }
 
 const byRecent = (a: Conversation, b: Conversation) => b.updatedAt - a.updatedAt
 
@@ -44,6 +57,17 @@ function reduce(state: State, action: Action): State {
       return { ...state, loaded: true, conversations: [...(action.store.conversations ?? [])].sort(byRecent) }
     case 'open':
       return { ...state, currentId: action.id }
+    case 'reveal':
+      return { ...state, currentId: state.running ?? state.currentId }
+    case 'provider':
+      if (state.currentId === null) return { ...state, draftProvider: action.provider }
+      return {
+        ...state,
+        draftProvider: action.provider,
+        conversations: state.conversations.map(conversation =>
+          conversation.id === state.currentId ? { ...conversation, provider: action.provider } : conversation),
+        revision: state.revision + 1,
+      }
     case 'rename':
       return {
         ...state,
@@ -58,80 +82,116 @@ function reduce(state: State, action: Action): State {
         currentId: state.currentId !== null && action.ids.includes(state.currentId) ? null : state.currentId,
         revision: state.revision + 1,
       }
-    case 'send': {
+    case 'add':
+    case 'start': {
       const others = state.conversations.filter(conversation => conversation.id !== action.conversation.id)
-      return {
+      const next = {
         ...state,
         conversations: [action.conversation, ...others],
         currentId: action.conversation.id,
-        running: action.conversation.id,
         revision: state.revision + 1,
       }
+      return action.type === 'add' ? next : { ...next, running: action.conversation.id, activityAt: action.conversation.updatedAt }
     }
-    case 'delta':
+    case 'stream':
       if (state.running !== action.id) return state
-      return { ...state, conversations: updateReply(state, action.id, reply => ({ ...reply, content: reply.content + action.text })) }
+      return { ...state, conversations: updateReply(state, action.id, reply => action.update(reply, action.time)) }
+    case 'activity':
+      return state.running === action.id ? { ...state, activityAt: action.time } : state
+    case 'ask':
+      return { ...state, approvals: [...state.approvals, action.approval] }
+    case 'drop':
+      // Time spent waiting on the user is not the model going quiet.
+      return { ...state, approvals: state.approvals.filter(approval => approval.key !== action.key), activityAt: action.time }
     case 'end': {
-      // Same shape the native window wrote: notes follow the reply after a blank line.
-      const conversations = updateReply(state, action.id, (reply) => {
-        const content = action.note === '' || reply.content.trim() === ''
-          ? reply.content + action.note
-          : `${reply.content}\n\n${action.note}`
-        return { ...reply, content, time: action.time }
-      }).map(conversation => conversation.id === action.id ? { ...conversation, updatedAt: action.time } : conversation)
+      const conversations = updateReply(state, action.id, reply =>
+        closeReply(reply, action.time, action.stopReason, action.error)).map(conversation => conversation.id === action.id ? { ...conversation, updatedAt: action.time } : conversation)
       return {
         ...state,
         conversations: conversations.sort(byRecent),
         running: state.running === action.id ? null : state.running,
+        approvals: state.approvals.filter(approval => approval.conversationId !== action.id),
         revision: state.revision + 1,
       }
     }
   }
 }
 
-const INITIAL: State = { loaded: false, conversations: [], currentId: null, running: null, revision: 0 }
+const INITIAL: State = {
+  loaded: false, conversations: [], currentId: null, running: null, activityAt: 0, approvals: [], draftProvider: undefined, revision: 0,
+}
 
 export interface Chat {
   conversations: Conversation[]
   current: Conversation | undefined
+  /** The conversation whose turn is streaming, wherever it is. */
+  runningId: string | null
+  /** The current conversation's turn is streaming. */
   running: boolean
+  activityAt: number
+  approvals: Approval[]
+  /** The current conversation's pick, or the one a new conversation will take. */
+  provider: Provider | undefined
+  setProvider: (provider: Provider) => void
   open: (id: string | null) => void
   rename: (id: string, title: string) => void
   remove: (ids: string[]) => void
-  send: ((text: string) => void) | undefined
+  /** Undefined outside the host. */
+  send: ((text: string, title?: string) => void) | undefined
+  /** Answer the user message before index again. */
+  retry: (index: number) => void
+  /** Replace the user message at index and answer from there. */
+  edit: (index: number, text: string) => void
+  /** Copy the conversation up to index into a new one. */
+  fork: (index: number) => void
+  answer: (key: string, optionId: string) => void
   stop: () => void
 }
 
-export function useChat(): Chat {
+export function useChat(bridge: Bridge | null): Chat {
   const [state, dispatch] = useReducer(reduce, INITIAL)
-  const [bridge, setBridge] = useState<Bridge | null>(null)
 
   useEffect(() => {
+    if (bridge === null) return
     let alive = true
-    const unsubscribe: (() => void)[] = []
-    void connectBridge().then(async (connected) => {
-      if (!alive || connected === null) return
-      unsubscribe.push(
-        connected.on('delta', (id, text) => {
-          dispatch({ type: 'delta', id, text })
-        }),
-        connected.on('finished', (id, stopReason) => {
-          dispatch({ type: 'end', id, note: STOP_NOTES[stopReason] ?? '', time: Date.now() })
-        }),
-        connected.on('failed', (id, error) => {
-          // The ⚠️ prefix keeps the reply out of the context replayed to a new session.
-          dispatch({ type: 'end', id, note: `⚠️ ${error}`, time: Date.now() })
-        }),
-      )
-      setBridge(connected)
-      const store = await connected.loadConversations()
+    const now = Date.now
+    const unsubscribe = [
+      bridge.on('delta', (id, text) => {
+        dispatch({ type: 'stream', id, time: now(), update: (reply, time) => appendText(reply, text, time) })
+      }),
+      bridge.on('thought', (id, text) => {
+        dispatch({ type: 'stream', id, time: now(), update: (reply, time) => appendReasoning(reply, text, time) })
+      }),
+      bridge.on('toolCall', (id, toolCallId, title, kind, status: ToolCallStatus) => {
+        dispatch({ type: 'stream', id, time: now(), update: (reply, time) => updateTool(reply, toolCallId, title, kind, status, time) })
+      }),
+      bridge.on('activity', (id) => {
+        dispatch({ type: 'activity', id, time: now() })
+      }),
+      bridge.on('permissionRequested', (conversationId, key, toolCall, options) => {
+        dispatch({ type: 'ask', approval: { key, conversationId, toolCall, options } })
+      }),
+      bridge.on('permissionDropped', (key) => {
+        dispatch({ type: 'drop', key, time: now() })
+      }),
+      bridge.on('finished', (id, stopReason) => {
+        dispatch({ type: 'end', id, time: now(), stopReason })
+      }),
+      bridge.on('failed', (id, error) => {
+        dispatch({ type: 'end', id, time: now(), error })
+      }),
+      bridge.on('turnRevealRequested', () => {
+        dispatch({ type: 'reveal' })
+      }),
+    ]
+    void bridge.loadConversations().then((store) => {
       if (alive) dispatch({ type: 'load', store })
     })
     return () => {
       alive = false
       for (const off of unsubscribe) off()
     }
-  }, [])
+  }, [bridge])
 
   const saved = useRef(0)
   useEffect(() => {
@@ -142,15 +202,53 @@ export function useChat(): Chat {
 
   const current = state.conversations.find(conversation => conversation.id === state.currentId)
 
-  const send = useCallback((text: string) => {
-    const content = text.trim()
-    if (bridge === null || content === '') return
+  // Answers the last message of history, which must be the user's.
+  const start = useCallback((base: Conversation, history: ChatMessage[]) => {
+    if (bridge === null) return
     const time = Date.now()
-    const base = current ?? { id: crypto.randomUUID(), title: content.split('\n', 1)[0]!.slice(0, 24), updatedAt: time, messages: [] }
-    const history: ChatMessage[] = [...base.messages, { role: 'user', content, time }]
-    dispatch({ type: 'send', conversation: { ...base, updatedAt: time, messages: [...history, { role: 'assistant', content: '' }] } })
-    bridge.send(base.id, history)
-  }, [bridge, current])
+    dispatch({ type: 'start', conversation: { ...base, updatedAt: time, messages: [...history, { role: 'assistant', content: '' }] } })
+    bridge.send(base.id, history.map(({ role, content }) => ({ role, content })), base.provider)
+  }, [bridge])
+
+  const send = useCallback((text: string, title?: string) => {
+    const content = text.trim()
+    if (content === '') return
+    const time = Date.now()
+    const base: Conversation = current ?? {
+      id: crypto.randomUUID(),
+      title: title ?? content.split('\n', 1)[0]!.slice(0, 24),
+      updatedAt: time,
+      messages: [],
+      ...(state.draftProvider === undefined ? {} : { provider: state.draftProvider }),
+    }
+    start(base, [...base.messages, { role: 'user', content, time }])
+  }, [current, start, state.draftProvider])
+
+  const retry = useCallback((index: number) => {
+    if (current === undefined || state.running !== null) return
+    const history = current.messages.slice(0, index)
+    if (history.at(-1)?.role === 'user') start(current, history)
+  }, [current, start, state.running])
+
+  const edit = useCallback((index: number, text: string) => {
+    const content = text.trim()
+    if (current === undefined || state.running !== null || content === '') return
+    start(current, [...current.messages.slice(0, index), { role: 'user', content, time: Date.now() }])
+  }, [current, start, state.running])
+
+  const fork = useCallback((index: number) => {
+    if (current === undefined) return
+    dispatch({
+      type: 'add',
+      conversation: {
+        id: crypto.randomUUID(),
+        title: t.forkTitle(current.title || t.untitled),
+        updatedAt: Date.now(),
+        messages: current.messages.slice(0, index + 1),
+        ...(current.provider === undefined ? {} : { provider: current.provider }),
+      },
+    })
+  }, [current])
 
   const open = useCallback((id: string | null) => {
     dispatch({ type: 'open', id })
@@ -165,18 +263,36 @@ export function useChat(): Chat {
     dispatch({ type: 'remove', ids })
   }, [bridge])
 
+  const answer = useCallback((key: string, optionId: string) => {
+    bridge?.answerPermission(key, optionId)
+    dispatch({ type: 'drop', key, time: Date.now() })
+  }, [bridge])
+
   const stop = useCallback(() => {
     bridge?.cancel()
   }, [bridge])
 
+  const setProvider = useCallback((provider: Provider) => {
+    dispatch({ type: 'provider', provider })
+  }, [])
+
   return {
     conversations: state.conversations,
     current,
+    runningId: state.running,
     running: current !== undefined && state.running === current.id,
+    activityAt: state.activityAt,
+    approvals: state.approvals,
+    provider: current === undefined ? state.draftProvider : current.provider,
+    setProvider,
     open,
     rename,
     remove,
     send: bridge === null ? undefined : send,
+    retry,
+    edit,
+    fork,
+    answer,
     stop,
   }
 }

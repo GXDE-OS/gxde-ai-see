@@ -2,8 +2,8 @@
  * Markup follows DeepSeek Harness ui-conversation InputBar and HeroShell
  * (MIT, see src/vendor/dsh/README.md). The Lexical editor is a textarea here.
  */
-import { useRef, useState } from 'react'
-import type { KeyboardEvent, MouseEvent } from 'react'
+import { useEffect, useRef } from 'react'
+import type { KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
 import appIcon from '../assets/app-icon.png'
 import { t } from '../chat/strings'
@@ -29,20 +29,33 @@ const keepFocus = (event: MouseEvent) => {
 
 export interface ComposerProps {
   variant: 'hero' | 'composer'
+  text: string
+  onTextChange: (text: string) => void
   running?: boolean
   onSend?: ((text: string) => void) | undefined
   onStop?: () => void
+  /** Pickers on the left of the action row. */
+  tools?: ReactNode
+  /** One line under the card. */
+  notice?: string | undefined
+  /** Bumped to focus the input with the caret at the end. */
+  focusRequest?: number
 }
 
-export function Composer({ variant, running = false, onSend, onStop }: ComposerProps) {
-  const [text, setText] = useState('')
+export function Composer({ variant, text, onTextChange, running = false, onSend, onStop, tools, notice, focusRequest = 0 }: ComposerProps) {
   const textarea = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => {
+    const input = textarea.current
+    if (focusRequest === 0 || input === null) return
+    input.focus()
+    input.setSelectionRange(input.value.length, input.value.length)
+  }, [focusRequest])
 
   const empty = text.trim() === ''
   const submit = () => {
     if (running || empty || onSend === undefined) return
     onSend(text)
-    setText('')
+    onTextChange('')
   }
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== 'Enter' || !event.ctrlKey || event.nativeEvent.isComposing) return
@@ -57,7 +70,7 @@ export function Composer({ variant, running = false, onSend, onStop }: ComposerP
         className={ib.card}
         data-composer-card
         onMouseDown={(event) => {
-          if (event.target !== textarea.current) {
+          if (event.target !== textarea.current && (event.target as Element).closest('button') === null) {
             event.preventDefault()
             textarea.current?.focus()
           }
@@ -73,7 +86,7 @@ export function Composer({ variant, running = false, onSend, onStop }: ComposerP
               value={text}
               aria-label={placeholder}
               onChange={(event) => {
-                setText(event.target.value)
+                onTextChange(event.target.value)
               }}
               onKeyDown={onKeyDown}
             />
@@ -81,7 +94,7 @@ export function Composer({ variant, running = false, onSend, onStop }: ComposerP
           </div>
         </div>
         <div className={ib.row}>
-          <div className={ib.tools} />
+          <div className={ib.tools}>{tools}</div>
           <div className={ib.trailing}>
             {running
               ? (
@@ -104,7 +117,9 @@ export function Composer({ variant, running = false, onSend, onStop }: ComposerP
           </div>
         </div>
       </div>
-      <div className={ib.dock} data-composer-dock />
+      <div className={ib.dock} data-composer-dock>
+        {notice !== undefined && <span className={local.notice}>{notice}</span>}
+      </div>
     </div>
   )
 }

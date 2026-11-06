@@ -18,3 +18,23 @@
   color: #CFD3D6;
   overflow-wrap: anywhere;
 }
+
+.footer {
+  display: flex;
+  gap: 4px;
+  padding-top: 4px;
+}
+
+.footer > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.footerButton {
+  height: 36px;
+}
+
+.footerButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

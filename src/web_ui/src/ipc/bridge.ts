@@ -8,11 +8,28 @@
 
 export type Role = 'system' | 'user' | 'assistant'
 
+export type ReplyPart =
+  | { type: 'text'; text: string }
+  | { type: 'reasoning'; text: string; startedAt: number; endedAt?: number }
+  | { type: 'tool'; id: string; title: string; kind: string; status: ToolCallStatus }
+
 export interface ChatMessage {
   role: Role
+  /** For a reply, its text alone: this is what the backend replays as history. */
   content: string
   /** Unix epoch ms: sent for the user's, finished for the assistant's. */
   time?: number
+  /** A reply's text, reasoning and tool calls in the order they streamed. */
+  parts?: ReplyPart[]
+  /** Why a reply ended other than end_turn. */
+  stopReason?: StopReason
+  error?: string
+}
+
+/** An AI Core provider account and one of its models. */
+export interface Provider {
+  accountId: string
+  model: string
 }
 
 export interface Conversation {
@@ -20,6 +37,8 @@ export interface Conversation {
   title: string
   updatedAt: number
   messages: ChatMessage[]
+  /** Unset: AI Core's default account. */
+  provider?: Provider
 }
 
 /** chat.json, shared with the earlier native window. */
@@ -86,6 +105,16 @@ export interface BridgeEvents {
   activity: [conversationId: string]
   accountsChanged: []
   askRequested: [text: string, files: string[]]
+  turnRevealRequested: []
+  /** Drops the page cannot read, such as local files, at page coordinates. */
+  urlsDropped: [urls: string[], x: number, y: number]
+}
+
+/** Chat settings kept outside AI Core. */
+export interface ChatSettings {
+  /** JSON array text, as the user wrote it. */
+  mcpServers: string
+  systemPrompt: string
 }
 
 /* ---- the raw QWebChannel object ---- */
@@ -107,7 +136,7 @@ interface RawBridge extends RawSignals {
 
   ready: QtMethod<[]>
   modes: QtMethod<[], ChatMode[]>
-  send: QtMethod<[conversationId: string, history: ChatMessage[]]>
+  send: QtMethod<[conversationId: string, history: ChatMessage[], providerAccountId: string, model: string]>
   cancel: QtMethod<[]>
   forget: QtMethod<[conversationId: string]>
   resetSessions: QtMethod<[]>
@@ -119,6 +148,11 @@ interface RawBridge extends RawSignals {
   saveAccount: QtMethod<[callId: number, account: object, apiKey: string]>
   deleteAccount: QtMethod<[callId: number, id: string]>
   activateAccount: QtMethod<[callId: number, id: string, model: string]>
+  settings: QtMethod<[], ChatSettings>
+  saveSettings: QtMethod<[settings: ChatSettings], string>
+  restartCore: QtMethod<[]>
+  showAbout: QtMethod<[]>
+  saveImage: QtMethod<[base64: string], string>
 }
 
 declare global {
@@ -178,6 +212,10 @@ export class Bridge {
     this.raw.mode = modeId
   }
 
+  setMode(modeId: string): void {
+    this.raw.mode = modeId
+  }
+
   modes(): Promise<ChatMode[]> {
     return this.invoke(this.raw.modes)
   }
@@ -186,8 +224,8 @@ export class Bridge {
    * Answer the last message of history, which must be the user's.  Replies
    * stream in as delta / thought / toolCall and end with finished or failed.
    */
-  send(conversationId: string, history: ChatMessage[]): void {
-    this.raw.send(conversationId, history)
+  send(conversationId: string, history: ChatMessage[], provider?: Provider): void {
+    this.raw.send(conversationId, history, provider?.accountId ?? '', provider?.model ?? '')
   }
 
   cancel(): void {
@@ -236,6 +274,28 @@ export class Bridge {
 
   activateAccount(accountId: string, model: string): Promise<unknown> {
     return this.request((id) => this.raw.activateAccount(id, accountId, model))
+  }
+
+  settings(): Promise<ChatSettings> {
+    return this.invoke(this.raw.settings)
+  }
+
+  /** Resolves to why nothing was saved, or '' on success. */
+  saveSettings(settings: ChatSettings): Promise<string> {
+    return this.invoke(this.raw.saveSettings, settings)
+  }
+
+  restartCore(): void {
+    this.raw.restartCore()
+  }
+
+  showAbout(): void {
+    this.raw.showAbout()
+  }
+
+  /** Store image bytes (base64) in the cache; resolves to the path, '' on failure. */
+  saveImage(base64: string): Promise<string> {
+    return this.invoke(this.raw.saveImage, base64)
   }
 
   /** Methods that return their value directly (through the QWebChannel callback). */

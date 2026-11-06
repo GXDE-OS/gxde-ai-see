@@ -1,0 +1,128 @@
+.dialog {
+  width: min(560px, 100%);
+}
+
+.content {
+  max-height: min(70vh, 640px);
+  overflow-y: auto;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.section + .section {
+  margin-top: 16px;
+}
+
+.heading {
+  margin: 0;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.accounts {
+  display: flex;
+  flex-direction: column;
+  min-height: 64px;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-3);
+}
+
+.account {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border-radius: var(--dsw-radius-sm);
+  cursor: default;
+  outline: none;
+}
+
+.account:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.account:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--dsw-alias-state-business-primary);
+}
+
+.chosen,
+.chosen:hover {
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+.accountName {
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.active {
+  font-weight: 600;
+}
+
+.accountMeta {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.buttons,
+.modelRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.modelRow {
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+}
+
+.modelRow select {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+}
+
+.code {
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+}
+
+.hint,
+.error {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.hint {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.error {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.link {
+  color: var(--dsw-alias-state-business-primary);
+  font-size: 12px;
+}

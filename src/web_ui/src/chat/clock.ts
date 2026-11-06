@@ -24,6 +24,16 @@ export function formatClock(time: number, now: number): string {
   return `${date} ${clock}`
 }
 
+export function formatDuration(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000))
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor(total / 60) % 60
+  let text = ''
+  if (hours > 0) text += `${hours}${t.hourUnit}`
+  if (total >= 60) text += `${minutes}${t.minuteUnit}`
+  return `${text}${total % 60}${t.secondUnit}`
+}
+
 /** Local midnight of today, advancing at each midnight. */
 export function useCalendarDay(): number {
   const [day, setDay] = useState(() => startOfDay(Date.now()))

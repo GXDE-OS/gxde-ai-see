@@ -1,7 +1,13 @@
-import { useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { useDrop } from './chat/drop'
+import { t } from './chat/strings'
+import { useAccounts, useModes } from './chat/useBackend'
 import { useChat } from './chat/useChat'
+import { ModelSelect, ModeSelect } from './components/ComposerTools'
 import { ConversationPanel } from './components/ConversationPanel'
+import { SettingsDialog } from './components/SettingsDialog'
 import { Sidebar } from './components/Sidebar'
+import { useBridge } from './ipc/useBridge'
 import frame from './vendor/dsh/layout/AppFrame.module.css'
 
 const SIDEBAR_WIDTH = 280
@@ -21,9 +27,55 @@ function useColorScheme() {
   }, [])
 }
 
+const fileName = (path: string) => path.split('/').filter(Boolean).at(-1) ?? path
+
 export function App() {
   useColorScheme()
-  const chat = useChat()
+  const bridge = useBridge()
+  const chat = useChat(bridge)
+  const accounts = useAccounts(bridge)
+  const modes = useModes(bridge)
+  const [draft, setDraft] = useState('')
+  // Title for the conversation an ask from the panel starts.
+  const [askTitle, setAskTitle] = useState<string | undefined>(undefined)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [notice, setNotice] = useState<string | undefined>(undefined)
+  const [focusRequest, setFocusRequest] = useState(0)
+
+  const { open: openChat, send: sendChat } = chat
+  const open = useCallback((id: string | null) => {
+    setAskTitle(undefined)
+    openChat(id)
+  }, [openChat])
+
+  const insert = useCallback((text: string) => {
+    setDraft(current => current === '' || current.endsWith('\n') ? current + text : `${current}\n${text}`)
+    setFocusRequest(n => n + 1)
+  }, [])
+  useDrop(bridge, open, insert)
+
+  useEffect(() => {
+    if (bridge === null) return
+    const off = bridge.on('askRequested', (text, files) => {
+      openChat(null)
+      setDraft([text, ...files].filter(part => part !== '').join('\n'))
+      const title = text === '' ? fileName(files[0] ?? '') : text.replace(/\s+/g, ' ').trim().slice(0, 24)
+      setAskTitle(title === '' ? undefined : title)
+      setFocusRequest(n => n + 1)
+    })
+    // Asks queued before the page listened arrive now.
+    bridge.ready()
+    return off
+  }, [bridge, openChat])
+
+  const send = sendChat && ((text: string) => {
+    setNotice(undefined)
+    sendChat(text, chat.current === undefined ? askTitle : undefined)
+    setAskTitle(undefined)
+  })
+
+  const lastUser = chat.current?.messages.findLastIndex(message => message.role === 'user') ?? -1
+  const approval = chat.approvals.find(item => item.conversationId === chat.current?.id)
 
   return (
     <div className={frame.frame} style={{ gridTemplateColumns: `${SIDEBAR_WIDTH}px minmax(0, 1fr) 0px` }}>
@@ -32,17 +84,75 @@ export function App() {
           sessions={chat.conversations}
           currentId={chat.current?.id ?? null}
           onNew={() => {
-            chat.open(null)
+            open(null)
           }}
-          onOpen={chat.open}
+          onOpen={open}
           onRename={chat.rename}
           onDelete={chat.remove}
+          runningId={chat.runningId}
+          waitingIds={chat.approvals.map(item => item.conversationId)}
+          actions={{
+            onSettings: bridge === null ? undefined : () => {
+              setSettingsOpen(true)
+            },
+            onStop: chat.runningId === null ? undefined : chat.stop,
+            onRetryLast: chat.runningId !== null || lastUser === -1 ? undefined : () => {
+              chat.retry(lastUser + 1)
+            },
+            onRestartCore: bridge === null ? undefined : () => {
+              bridge.restartCore()
+              // Asking for the accounts starts AI Core again.
+              accounts.refresh()
+              setNotice(t.coreRestarted)
+            },
+            onAbout: bridge === null ? undefined : () => {
+              bridge.showAbout()
+            },
+          }}
         />
       </div>
       <div className={frame.centerCol}>
-        <ConversationPanel conversation={chat.current} running={chat.running} onSend={chat.send} onStop={chat.stop} />
+        <ConversationPanel
+          conversation={chat.current}
+          running={chat.running}
+          busy={chat.runningId !== null && !chat.running}
+          activityAt={chat.activityAt}
+          approval={approval}
+          draft={draft}
+          onDraftChange={setDraft}
+          tools={(
+            <>
+              <ModeSelect {...modes} />
+              <ModelSelect
+                accounts={accounts}
+                provider={chat.provider}
+                onSelect={chat.setProvider}
+                onManage={() => {
+                  setSettingsOpen(true)
+                }}
+              />
+            </>
+          )}
+          notice={notice}
+          focusRequest={focusRequest}
+          onSend={send}
+          onStop={chat.stop}
+          onAnswer={chat.answer}
+          onRetry={chat.retry}
+          onEdit={chat.edit}
+          onFork={chat.fork}
+        />
       </div>
       <div className={frame.rightbarCol} />
+      {settingsOpen && bridge !== null && (
+        <SettingsDialog
+          bridge={bridge}
+          accounts={accounts}
+          onClose={() => {
+            setSettingsOpen(false)
+          }}
+        />
+      )}
     </div>
   )
 }
