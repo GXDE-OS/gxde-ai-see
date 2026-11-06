@@ -23,6 +23,20 @@ function useColumnWidth(body: HTMLElement | null) {
   }, [body])
 }
 
+function useComposerHeight(scroller: HTMLElement | null, seat: HTMLElement | null) {
+  useEffect(() => {
+    if (scroller === null || seat === null) return
+    const observer = new ResizeObserver(() => {
+      scroller.style.setProperty('--dsh-composer-height', `${seat.offsetHeight}px`)
+    })
+
+    observer.observe(seat)
+    return () => {
+      observer.disconnect()
+    }
+  }, [scroller, seat])
+}
+
 export interface ConversationPanelProps {
   conversation: Conversation | undefined
 }
@@ -31,7 +45,10 @@ export function ConversationPanel({ conversation }: ConversationPanelProps) {
   const hero = conversation === undefined
   const phase = hero ? 'hero' : 'active'
   const [body, setBody] = useState<HTMLDivElement | null>(null)
+  const [scroller, setScroller] = useState<HTMLDivElement | null>(null)
+  const [seat, setSeat] = useState<HTMLDivElement | null>(null)
   useColumnWidth(body)
+  useComposerHeight(scroller, seat)
 
   return (
     <div className={cr.root} data-phase={phase}>
@@ -50,13 +67,13 @@ export function ConversationPanel({ conversation }: ConversationPanelProps) {
         </div>
       </header>
       <div ref={setBody} className={cr.body} data-conversation-content="" data-content-phase={phase}>
-        <div className={cr.scrollBody} data-conversation-scroll="">
+        <div ref={setScroller} className={cr.scrollBody} data-conversation-scroll="">
           {!hero && (
             <div className={cr.viewArea}>
-              <ChatView messages={conversation.messages} />
+              <ChatView key={conversation.id} messages={conversation.messages} scroller={scroller} />
             </div>
           )}
-          <div className={cr.composerSeat} data-composer-seat="">
+          <div ref={setSeat} className={cr.composerSeat} data-composer-seat="">
             <div className={clsx(cr.composerStack, hero && cr.composerHero)}>
               {hero && <HeroShell />}
               <Composer variant={hero ? 'hero' : 'composer'} />

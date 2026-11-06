@@ -17,6 +17,7 @@
 #include <QUrl>
 #include <QWebEngineNewWindowRequest>
 #include <QWebEnginePage>
+#include <QWebEngineSettings>
 #include <QWebEngineView>
 
 namespace {
@@ -62,6 +63,9 @@ WebChatWindow::WebChatWindow(QWidget *parent)
     migrateLegacySettings();
 
     setCentralWidget(m_view);
+    // Copy buttons use navigator.clipboard
+    // Sadly, Qt's WebEngine prevents this by default :(
+    m_view->settings()->setAttribute(QWebEngineSettings::JavascriptCanAccessClipboard, true);
     m_bridge->install(m_view->page());
     // Markdown links open with target=_blank.
     // So we have to hand them to system browser.

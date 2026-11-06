@@ -14,6 +14,7 @@ export const t = {
   wrap: '自动换行',
   unwrap: '取消自动换行',
   footnotes: '脚注',
+  toBottom: '回到底部',
   timeNow: '刚刚',
   minutes: (n: number) => `${n} 分钟`,
   hours: (n: number) => `${n} 小时`,
