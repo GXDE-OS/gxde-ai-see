@@ -59,7 +59,7 @@ export function App() {
         />
       </div>
       <div className={frame.centerCol}>
-        <ConversationPanel title={current?.title} />
+        <ConversationPanel conversation={current} />
       </div>
       <div className={frame.rightbarCol} />
     </div>

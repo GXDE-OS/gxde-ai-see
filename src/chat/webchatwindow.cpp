@@ -11,9 +11,12 @@
 #include <QApplication>
 #include <QDBusConnection>
 #include <QDBusMessage>
+#include <QDesktopServices>
 #include <QGuiApplication>
 #include <QScreen>
 #include <QUrl>
+#include <QWebEngineNewWindowRequest>
+#include <QWebEnginePage>
 #include <QWebEngineView>
 
 namespace {
@@ -60,6 +63,12 @@ WebChatWindow::WebChatWindow(QWidget *parent)
 
     setCentralWidget(m_view);
     m_bridge->install(m_view->page());
+    // Markdown links open with target=_blank.
+    // So we have to hand them to system browser.
+    connect(m_view->page(), &QWebEnginePage::newWindowRequested, this,
+            [](QWebEngineNewWindowRequest &request) {
+                QDesktopServices::openUrl(request.requestedUrl());
+            });
     m_view->load(webUiUrl());
 
     // Send a notifition if user's permission is EXPLICITLY required

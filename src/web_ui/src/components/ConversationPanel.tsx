@@ -1,11 +1,13 @@
 /*
- * Markup follows DeepSeek Harness ui-conversation ConversationMainPanel,
+ * Heavily referenced DeepSeek Harness ui-conversation ConversationMainPanel,
  * ConversationHeader and ConversationContent (MIT, see src/vendor/dsh/README.md).
  */
 import { useEffect, useState } from 'react'
 import clsx from 'clsx'
 import { t } from '../chat/strings'
+import type { Conversation } from '../ipc/bridge'
 import cr from '../vendor/dsh/conversation/ConversationRoot.module.css'
+import { ChatView } from './ChatView'
 import { Composer, HeroShell } from './Composer'
 
 function useColumnWidth(body: HTMLElement | null) {
@@ -22,12 +24,11 @@ function useColumnWidth(body: HTMLElement | null) {
 }
 
 export interface ConversationPanelProps {
-  /** Title of the open conversation; undefined shows the hero. */
-  title: string | undefined
+  conversation: Conversation | undefined
 }
 
-export function ConversationPanel({ title }: ConversationPanelProps) {
-  const hero = title === undefined
+export function ConversationPanel({ conversation }: ConversationPanelProps) {
+  const hero = conversation === undefined
   const phase = hero ? 'hero' : 'active'
   const [body, setBody] = useState<HTMLDivElement | null>(null)
   useColumnWidth(body)
@@ -41,7 +42,7 @@ export function ConversationPanel({ title }: ConversationPanelProps) {
             <div className={cr.titleCluster}>
               <nav className={cr.crumbs}>
                 <span className={cr.crumbSeg}>
-                  <span className={clsx(cr.crumb, cr.crumbCurrent)}>{title || t.untitled}</span>
+                  <span className={clsx(cr.crumb, cr.crumbCurrent)}>{conversation.title || t.untitled}</span>
                 </span>
               </nav>
             </div>
@@ -50,7 +51,11 @@ export function ConversationPanel({ title }: ConversationPanelProps) {
       </header>
       <div ref={setBody} className={cr.body} data-conversation-content="" data-content-phase={phase}>
         <div className={cr.scrollBody} data-conversation-scroll="">
-          {!hero && <div className={cr.viewArea} />}
+          {!hero && (
+            <div className={cr.viewArea}>
+              <ChatView messages={conversation.messages} />
+            </div>
+          )}
           <div className={cr.composerSeat} data-composer-seat="">
             <div className={clsx(cr.composerStack, hero && cr.composerHero)}>
               {hero && <HeroShell />}
