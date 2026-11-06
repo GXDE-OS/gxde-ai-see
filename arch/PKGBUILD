@@ -27,7 +27,8 @@ makedepends=(
     'pkgconf'
     'qt6-tools'
 )
-optdepends=('gxde-k9: startup and background keep-alive support')
+optdepends=('gxde-k9: startup and background keep-alive support'
+            'gxde-ai-core-git')
 
 build() {
     cmake \

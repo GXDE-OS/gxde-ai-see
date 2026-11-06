@@ -10,7 +10,9 @@
 
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QFrame>
 #include <QHBoxLayout>
+#include <QPushButton>
 #include <QScrollBar>
 #include <QLabel>
 #include <QTextBrowser>
@@ -131,6 +133,7 @@ public:
         avatar->setStyleSheet(avatarStyle(palette, m_isUser));
 
         auto *column = new QVBoxLayout;
+        m_column = column;
         column->setContentsMargins(0, 0, 0, 0);
         column->setSpacing(3);
 
@@ -141,6 +144,7 @@ public:
         column->addWidget(meta);
 
         auto *bubble = new QFrame(this);
+        m_bubble = bubble;
         bubble->setMaximumWidth(kBubbleMaxWidth + 26);
         bubble->setStyleSheet(
             QStringLiteral("QFrame { background: %1; border-radius: 12px; }")
@@ -223,6 +227,31 @@ public:
         } else if (m_label) {
             m_label->setText(escapedHtml(text));
         }
+        updateBubble();
+    }
+
+    void setThinking(const QString &text, bool active)
+    {
+        if (text.isEmpty()) {
+            if (m_thinking) {
+                m_thinking->hide();
+            }
+        } else {
+            if (!m_thinking) {
+                m_thinking = new QLabel(this);
+                /* below the name, above the bubble */
+                m_column->insertWidget(1, m_thinking, 0, Qt::AlignLeft);
+            }
+            const ChatPalette &palette = ChatTheme::palette();
+            m_thinking->setStyleSheet(
+                QStringLiteral("QLabel { color: %1; background: %2; border-radius: 10px;"
+                               " padding: 5px 12px; font-size: 12px; }")
+                    .arg(ChatTheme::css(active ? palette.accent : palette.textMuted),
+                         ChatTheme::css(palette.noteBg)));
+            m_thinking->setText(text);
+            m_thinking->show();
+        }
+        updateBubble();
     }
 
 signals:
@@ -232,9 +261,14 @@ signals:
     void retryRequested(int index);
     void linkActivated(const QUrl &url);
 
-protected:
-
 private:
+    /* an empty answer bubble under the thinking card is just noise */
+    void updateBubble()
+    {
+        const bool thinking = m_thinking && !m_thinking->isHidden();
+        m_bubble->setVisible(m_isUser || !thinking || !m_message.content.isEmpty());
+    }
+
     ChatMessage m_message;
     int m_index = -1;
     bool m_isUser = false;
@@ -242,6 +276,9 @@ private:
     QWidget *m_actions = nullptr;
     BubbleText *m_body = nullptr;
     QLabel *m_label = nullptr;
+    QVBoxLayout *m_column = nullptr;
+    QFrame *m_bubble = nullptr;
+    QLabel *m_thinking = nullptr;
 };
 
 ChatMessageList::ChatMessageList(QWidget *parent)
@@ -380,8 +417,17 @@ void ChatMessageList::rebuild(bool scrollToBottom)
         connect(row, &MessageRow::forkRequested, this, &ChatMessageList::forkRequested);
         connect(row, &MessageRow::retryRequested, this, &ChatMessageList::retryRequested);
         connect(row, &MessageRow::linkActivated, this, &ChatMessageList::linkActivated);
+        if (i == m_thinkingIndex) {
+            row->setThinking(m_thinkingText, m_thinkingActive);
+        }
         m_layout->insertWidget(m_layout->count() - 1, row);
         m_rows.append(row);
+    }
+
+    /* pending confirmations stay below the conversation */
+    for (QWidget *card : std::as_const(m_permissions)) {
+        m_layout->removeWidget(card);
+        m_layout->insertWidget(m_layout->count() - 1, card);
     }
 
     if (scrollToBottom) {
@@ -420,6 +466,137 @@ void ChatMessageList::appendNote(const QString &text)
     m_layout->insertWidget(m_layout->count() - 1, note);
     m_notes.append(note);
     QTimer::singleShot(0, this, &ChatMessageList::scrollToBottom);
+}
+
+void ChatMessageList::showPermission(const QString &key, const QString &title,
+                                     const QString &detail,
+                                     const QList<QPair<QString, QString>> &options)
+{
+    removePermission(key);
+    const ChatPalette &palette = ChatTheme::palette();
+
+    auto *card = new QFrame(m_container);
+    card->setObjectName(QStringLiteral("permissionCard"));
+    card->setMaximumWidth(kBubbleMaxWidth + 26);
+    card->setStyleSheet(
+        QStringLiteral("QFrame#permissionCard { background: %1; border: 1px solid %2;"
+                       " border-radius: 12px; }")
+            .arg(ChatTheme::css(palette.bubbleAssistant), ChatTheme::css(palette.accent)));
+
+    auto *layout = new QVBoxLayout(card);
+    layout->setContentsMargins(14, 10, 14, 10);
+    layout->setSpacing(6);
+
+    auto *heading = new QLabel(tr("🔐 小埃想要使用工具，需要你确认"), card);
+    heading->setStyleSheet(QStringLiteral("color: %1; font-size: 12px; font-weight: 600;")
+                               .arg(ChatTheme::css(palette.accent)));
+    layout->addWidget(heading);
+
+    auto *titleLabel = new QLabel(title, card);
+    titleLabel->setWordWrap(true);
+    titleLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    titleLabel->setStyleSheet(QStringLiteral("color: %1; font-size: 13px;"
+                                             " font-family: monospace;")
+                                  .arg(ChatTheme::css(palette.bubbleAssistantText)));
+    layout->addWidget(titleLabel);
+
+    if (!detail.isEmpty()) {
+        auto *detailLabel = new QLabel(detail, card);
+        detailLabel->setWordWrap(true);
+        detailLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        detailLabel->setStyleSheet(QStringLiteral("color: %1; font-size: 11px;")
+                                       .arg(ChatTheme::css(palette.textSecondary)));
+        layout->addWidget(detailLabel);
+    }
+
+    auto *buttonRow = new QWidget(card);
+    auto *buttons = new QHBoxLayout(buttonRow);
+    buttons->setContentsMargins(0, 4, 0, 0);
+    buttons->setSpacing(6);
+    auto *decision = new QLabel(card);
+    decision->setStyleSheet(QStringLiteral("color: %1; font-size: 11px;")
+                                .arg(ChatTheme::css(palette.textMuted)));
+    decision->hide();
+
+    bool first = true;
+    for (const auto &option : options) {
+        auto *button = new QPushButton(option.second, buttonRow);
+        button->setCursor(Qt::PointingHandCursor);
+        button->setFocusPolicy(Qt::NoFocus);
+        if (first) {
+            button->setStyleSheet(
+                QStringLiteral("QPushButton { background: %1; color: %2; border: none;"
+                               " border-radius: 6px; padding: 4px 12px; }"
+                               "QPushButton:hover { background: %3; }")
+                    .arg(ChatTheme::css(palette.accentStrong), ChatTheme::css(palette.accentText),
+                         ChatTheme::css(palette.accentHover)));
+            first = false;
+        }
+        const QString optionId = option.first;
+        const QString label = option.second;
+        connect(button, &QPushButton::clicked, this,
+                [this, key, optionId, label, buttonRow, decision]() {
+                    buttonRow->hide();
+                    decision->setText(tr("已选择：%1").arg(label));
+                    decision->show();
+                    Q_EMIT permissionAnswered(key, optionId);
+                });
+        buttons->addWidget(button);
+    }
+    buttons->addStretch();
+    layout->addWidget(buttonRow);
+    layout->addWidget(decision);
+
+    /* lined up with the assistant bubbles */
+    auto *row = new QWidget(m_container);
+    auto *rowLayout = new QHBoxLayout(row);
+    rowLayout->setContentsMargins(4 + kAvatarSize + 8, 2, 4, 2);
+    rowLayout->addWidget(card);
+    rowLayout->addStretch(1);
+
+    m_layout->insertWidget(m_layout->count() - 1, row);
+    row->setVisible(m_permissionsVisible);
+    m_permissions.insert(key, row);
+    QTimer::singleShot(0, this, &ChatMessageList::scrollToBottom);
+}
+
+void ChatMessageList::removePermission(const QString &key)
+{
+    if (QWidget *row = m_permissions.take(key)) {
+        m_layout->removeWidget(row);
+        row->hide();
+        row->deleteLater();
+    }
+}
+
+void ChatMessageList::setPermissionsVisible(bool visible)
+{
+    m_permissionsVisible = visible;
+    for (QWidget *row : std::as_const(m_permissions)) {
+        row->setVisible(visible);
+    }
+}
+
+void ChatMessageList::setThinking(int index, const QString &text, bool active)
+{
+    if (index < 0 || text.isEmpty()) {
+        index = -1;
+    }
+    const int previous = m_thinkingIndex;
+    m_thinkingIndex = index;
+    m_thinkingText = index < 0 ? QString() : text;
+    m_thinkingActive = index >= 0 && active;
+
+    for (MessageRow *row : std::as_const(m_rows)) {
+        if (row->rowIndex() == index) {
+            row->setThinking(m_thinkingText, m_thinkingActive);
+        } else if (row->rowIndex() == previous) {
+            row->setThinking(QString(), false);
+        }
+    }
+    if (previous != index) {
+        QTimer::singleShot(0, this, &ChatMessageList::scrollToBottom);
+    }
 }
 
 void ChatMessageList::dragEnterEvent(QDragEnterEvent *event)
