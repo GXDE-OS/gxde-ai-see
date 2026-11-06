@@ -1,0 +1,17 @@
+.textarea {
+  display: block;
+  width: 100%;
+  margin: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  resize: none;
+  overflow: hidden;
+  field-sizing: content;
+}
+
+.heroIcon {
+  width: 34px;
+  height: 34px;
+}
