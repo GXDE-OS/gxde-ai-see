@@ -62,6 +62,7 @@ public:
 
 signals:
     void delta(const QString &text);
+    void thought(const QString &text);
     /** A tool started, progressed or ended (\a status: pending, in_progress, completed, failed). */
     void toolCall(const QString &toolCallId, const QString &title, const QString &kind,
                   const QString &status);

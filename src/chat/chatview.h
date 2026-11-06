@@ -41,6 +41,15 @@ public:
     void showPermission(const QString &key, const QString &title, const QString &detail,
                         const QList<QPair<QString, QString>> &options);
     void removePermission(const QString &key);
+    /** Hide the confirmation cards while another conversation is shown. */
+    void setPermissionsVisible(bool visible);
+
+    /**
+     * A "thinking" card above the bubble of the assistant message \a index,
+     * \a active while the model is still reasoning.  Empty \a text (or a
+     * negative index) removes it.  The card survives setMessages().
+     */
+    void setThinking(int index, const QString &text, bool active);
 
     /** Rebuild every row after the light/dark theme changed. */
     void refreshTheme();
@@ -74,5 +83,9 @@ private:
     QVector<class MessageRow *> m_rows;
     QVector<QWidget *> m_notes;
     QHash<QString, QWidget *> m_permissions;
+    bool m_permissionsVisible = true;
+    int m_thinkingIndex = -1;
+    QString m_thinkingText;
+    bool m_thinkingActive = false;
     QVector<ChatMessage> m_messages;
 };

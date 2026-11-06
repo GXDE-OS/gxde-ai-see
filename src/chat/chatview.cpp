@@ -133,6 +133,7 @@ public:
         avatar->setStyleSheet(avatarStyle(palette, m_isUser));
 
         auto *column = new QVBoxLayout;
+        m_column = column;
         column->setContentsMargins(0, 0, 0, 0);
         column->setSpacing(3);
 
@@ -143,6 +144,7 @@ public:
         column->addWidget(meta);
 
         auto *bubble = new QFrame(this);
+        m_bubble = bubble;
         bubble->setMaximumWidth(kBubbleMaxWidth + 26);
         bubble->setStyleSheet(
             QStringLiteral("QFrame { background: %1; border-radius: 12px; }")
@@ -225,6 +227,31 @@ public:
         } else if (m_label) {
             m_label->setText(escapedHtml(text));
         }
+        updateBubble();
+    }
+
+    void setThinking(const QString &text, bool active)
+    {
+        if (text.isEmpty()) {
+            if (m_thinking) {
+                m_thinking->hide();
+            }
+        } else {
+            if (!m_thinking) {
+                m_thinking = new QLabel(this);
+                /* below the name, above the bubble */
+                m_column->insertWidget(1, m_thinking, 0, Qt::AlignLeft);
+            }
+            const ChatPalette &palette = ChatTheme::palette();
+            m_thinking->setStyleSheet(
+                QStringLiteral("QLabel { color: %1; background: %2; border-radius: 10px;"
+                               " padding: 5px 12px; font-size: 12px; }")
+                    .arg(ChatTheme::css(active ? palette.accent : palette.textMuted),
+                         ChatTheme::css(palette.noteBg)));
+            m_thinking->setText(text);
+            m_thinking->show();
+        }
+        updateBubble();
     }
 
 signals:
@@ -234,9 +261,14 @@ signals:
     void retryRequested(int index);
     void linkActivated(const QUrl &url);
 
-protected:
-
 private:
+    /* an empty answer bubble under the thinking card is just noise */
+    void updateBubble()
+    {
+        const bool thinking = m_thinking && !m_thinking->isHidden();
+        m_bubble->setVisible(m_isUser || !thinking || !m_message.content.isEmpty());
+    }
+
     ChatMessage m_message;
     int m_index = -1;
     bool m_isUser = false;
@@ -244,6 +276,9 @@ private:
     QWidget *m_actions = nullptr;
     BubbleText *m_body = nullptr;
     QLabel *m_label = nullptr;
+    QVBoxLayout *m_column = nullptr;
+    QFrame *m_bubble = nullptr;
+    QLabel *m_thinking = nullptr;
 };
 
 ChatMessageList::ChatMessageList(QWidget *parent)
@@ -382,6 +417,9 @@ void ChatMessageList::rebuild(bool scrollToBottom)
         connect(row, &MessageRow::forkRequested, this, &ChatMessageList::forkRequested);
         connect(row, &MessageRow::retryRequested, this, &ChatMessageList::retryRequested);
         connect(row, &MessageRow::linkActivated, this, &ChatMessageList::linkActivated);
+        if (i == m_thinkingIndex) {
+            row->setThinking(m_thinkingText, m_thinkingActive);
+        }
         m_layout->insertWidget(m_layout->count() - 1, row);
         m_rows.append(row);
     }
@@ -517,6 +555,7 @@ void ChatMessageList::showPermission(const QString &key, const QString &title,
     rowLayout->addStretch(1);
 
     m_layout->insertWidget(m_layout->count() - 1, row);
+    row->setVisible(m_permissionsVisible);
     m_permissions.insert(key, row);
     QTimer::singleShot(0, this, &ChatMessageList::scrollToBottom);
 }
@@ -527,6 +566,36 @@ void ChatMessageList::removePermission(const QString &key)
         m_layout->removeWidget(row);
         row->hide();
         row->deleteLater();
+    }
+}
+
+void ChatMessageList::setPermissionsVisible(bool visible)
+{
+    m_permissionsVisible = visible;
+    for (QWidget *row : std::as_const(m_permissions)) {
+        row->setVisible(visible);
+    }
+}
+
+void ChatMessageList::setThinking(int index, const QString &text, bool active)
+{
+    if (index < 0 || text.isEmpty()) {
+        index = -1;
+    }
+    const int previous = m_thinkingIndex;
+    m_thinkingIndex = index;
+    m_thinkingText = index < 0 ? QString() : text;
+    m_thinkingActive = index >= 0 && active;
+
+    for (MessageRow *row : std::as_const(m_rows)) {
+        if (row->rowIndex() == index) {
+            row->setThinking(m_thinkingText, m_thinkingActive);
+        } else if (row->rowIndex() == previous) {
+            row->setThinking(QString(), false);
+        }
+    }
+    if (previous != index) {
+        QTimer::singleShot(0, this, &ChatMessageList::scrollToBottom);
     }
 }
 

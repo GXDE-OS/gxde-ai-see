@@ -291,32 +291,32 @@ AI See</translation>
 <context>
     <name>ChatClient</name>
     <message>
-        <location filename="../src/chat/chatclient.cpp" line="88"/>
+        <location filename="../src/chat/chatclient.cpp" line="90"/>
         <source>自动允许编辑</source>
         <translation>Auto-approve edits</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatclient.cpp" line="91"/>
+        <location filename="../src/chat/chatclient.cpp" line="94"/>
         <source>全部自动允许</source>
         <translation>Approve everything</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatclient.cpp" line="94"/>
+        <location filename="../src/chat/chatclient.cpp" line="98"/>
         <source>只读</source>
         <translation>Read only</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatclient.cpp" line="96"/>
+        <location filename="../src/chat/chatclient.cpp" line="101"/>
         <source>每次确认</source>
         <translation>Ask every time</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatclient.cpp" line="133"/>
+        <location filename="../src/chat/chatclient.cpp" line="137"/>
         <source>没有要发送的消息</source>
         <translation>There is no message to send</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatclient.cpp" line="191"/>
+        <location filename="../src/chat/chatclient.cpp" line="194"/>
         <source>GXDE AI Core 没有创建会话</source>
         <translation>GXDE AI Core did not create a session</translation>
     </message>
@@ -324,29 +324,29 @@ AI See</translation>
 <context>
     <name>ChatMessageList</name>
     <message>
-        <location filename="../src/chat/chatview.cpp" line="273"/>
+        <location filename="../src/chat/chatview.cpp" line="309"/>
         <source>埃</source>
         <translation>AI</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatview.cpp" line="279"/>
+        <location filename="../src/chat/chatview.cpp" line="315"/>
         <source>你好，我是小埃同学</source>
         <translation>Hi, I&apos;m AI See</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatview.cpp" line="288"/>
+        <location filename="../src/chat/chatview.cpp" line="324"/>
         <source>把文件、链接或文字拖进窗口，或者直接输入问题。
 第一次使用请在左下角「设置」里填入 DeepSeek API Key。</source>
         <translation>Drop files, links or text here, or just type a question.
 On first use open Settings at the bottom left and enter your DeepSeek API key.</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatview.cpp" line="452"/>
+        <location filename="../src/chat/chatview.cpp" line="491"/>
         <source>🔐 小埃想要使用工具，需要你确认</source>
         <translation>🔐 AI See wants to use a tool and needs your approval</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatview.cpp" line="502"/>
+        <location filename="../src/chat/chatview.cpp" line="541"/>
         <source>已选择：%1</source>
         <translation>Chosen: %1</translation>
     </message>
@@ -369,62 +369,62 @@ On first use open Settings at the bottom left and enter your DeepSeek API key.</
     <message>
         <location filename="../src/chat/chatwindow.cpp" line="314"/>
         <location filename="../src/chat/chatwindow.cpp" line="315"/>
-        <location filename="../src/chat/chatwindow.cpp" line="651"/>
-        <location filename="../src/chat/chatwindow.cpp" line="720"/>
-        <location filename="../src/chat/chatwindow.cpp" line="1146"/>
+        <location filename="../src/chat/chatwindow.cpp" line="765"/>
+        <location filename="../src/chat/chatwindow.cpp" line="834"/>
+        <location filename="../src/chat/chatwindow.cpp" line="1272"/>
         <source>小埃同学</source>
         <translation>AI See</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="434"/>
-        <location filename="../src/chat/chatwindow.cpp" line="436"/>
+        <location filename="../src/chat/chatwindow.cpp" line="447"/>
+        <location filename="../src/chat/chatwindow.cpp" line="449"/>
         <source>⚠️ %1</source>
         <translation>⚠️ %1</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="665"/>
+        <location filename="../src/chat/chatwindow.cpp" line="779"/>
         <source>＋ 新建对话</source>
         <translation>+ New conversation</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="827"/>
+        <location filename="../src/chat/chatwindow.cpp" line="941"/>
         <source>重试上一条</source>
         <translation>Retry last message</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="839"/>
+        <location filename="../src/chat/chatwindow.cpp" line="953"/>
         <source>关于</source>
         <translation>About</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="767"/>
+        <location filename="../src/chat/chatwindow.cpp" line="881"/>
         <source>输入消息，Ctrl+Enter 发送；也可以把文件/文字拖进窗口</source>
         <translation>Type a message, Ctrl+Enter to send; you can also drop files or text here</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="771"/>
+        <location filename="../src/chat/chatwindow.cpp" line="885"/>
         <source>发送</source>
         <translation>Send</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="1011"/>
-        <location filename="../src/chat/chatwindow.cpp" line="1113"/>
-        <location filename="../src/chat/chatwindow.cpp" line="1165"/>
+        <location filename="../src/chat/chatwindow.cpp" line="1120"/>
+        <location filename="../src/chat/chatwindow.cpp" line="1236"/>
+        <location filename="../src/chat/chatwindow.cpp" line="1291"/>
         <source>新对话</source>
         <translation>New conversation</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="1208"/>
+        <location filename="../src/chat/chatwindow.cpp" line="1338"/>
         <source>编辑消息</source>
         <translation>Edit message</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="1290"/>
+        <location filename="../src/chat/chatwindow.cpp" line="1420"/>
         <source>%1 · 分支</source>
         <translation>%1 · branch</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="692"/>
+        <location filename="../src/chat/chatwindow.cpp" line="806"/>
         <source>⚙ 设置</source>
         <translation>⚙ Settings</translation>
     </message>
@@ -449,79 +449,99 @@ On first use open Settings at the bottom left and enter your DeepSeek API key.</
         <translation>(Stopped)</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="398"/>
+        <location filename="../src/chat/chatwindow.cpp" line="406"/>
         <source>🔧 %1</source>
         <translation>🔧 %1</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="400"/>
+        <location filename="../src/chat/chatwindow.cpp" line="408"/>
         <source>⚠️ 工具未完成：%1</source>
         <translation>⚠️ Tool did not finish: %1</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="466"/>
+        <location filename="../src/chat/chatwindow.cpp" line="479"/>
         <source>还在等待模型回应（%1 秒）…</source>
         <translation>Still waiting for the model (%1 s)…</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="469"/>
+        <location filename="../src/chat/chatwindow.cpp" line="482"/>
         <source>GXDE AI Core 遇到网络或接口错误时会在后台反复重试，可能持续几分钟。请在「设置」里检查当前账号的 API 地址（OpenAI 兼容地址一般以 /v1 结尾）和网络，或在「⋯」菜单里选「停止回复」。</source>
         <translation>GXDE AI Core keeps retrying in the background after network or API errors, which can take minutes. Check the API URL of the current account in &quot;Settings&quot; (OpenAI compatible URLs usually end in /v1) and your network, or choose &quot;Stop reply&quot; in the &quot;⋯&quot; menu.</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="532"/>
+        <location filename="../src/chat/chatwindow.cpp" line="497"/>
+        <source>%1秒</source>
+        <translation>%1s</translation>
+    </message>
+    <message>
+        <location filename="../src/chat/chatwindow.cpp" line="499"/>
+        <source>%1分%2秒</source>
+        <translation>%1m %2s</translation>
+    </message>
+    <message>
+        <location filename="../src/chat/chatwindow.cpp" line="549"/>
+        <source>💭 思考中 %1</source>
+        <translation>💭 Thinking %1</translation>
+    </message>
+    <message>
+        <location filename="../src/chat/chatwindow.cpp" line="550"/>
+        <source>💭 已思考 %1</source>
+        <translation>💭 Thought for %1</translation>
+    </message>
+    <message>
+        <location filename="../src/chat/chatwindow.cpp" line="640"/>
         <source>修改文件：%1</source>
         <translation>Edit file: %1</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="557"/>
+        <location filename="../src/chat/chatwindow.cpp" line="665"/>
         <source>允许</source>
         <translation>Allow</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="559"/>
+        <location filename="../src/chat/chatwindow.cpp" line="667"/>
         <source>本对话内总是允许</source>
         <translation>Always allow in this conversation</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="561"/>
+        <location filename="../src/chat/chatwindow.cpp" line="669"/>
         <source>拒绝</source>
         <translation>Reject</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="563"/>
+        <location filename="../src/chat/chatwindow.cpp" line="671"/>
         <source>总是拒绝</source>
         <translation>Always reject</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="588"/>
+        <location filename="../src/chat/chatwindow.cpp" line="697"/>
         <source>小埃同学需要你确认</source>
         <translation>AI See needs your approval</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="589"/>
+        <location filename="../src/chat/chatwindow.cpp" line="698"/>
         <source>小埃想要执行：%1
 请回到对话窗口允许或拒绝。</source>
         <translation>AI See wants to run: %1
 Go back to the chat window to allow or reject it.</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="590"/>
+        <location filename="../src/chat/chatwindow.cpp" line="699"/>
         <source>查看</source>
         <translation>Show</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="728"/>
+        <location filename="../src/chat/chatwindow.cpp" line="842"/>
         <source>GXDE AI Core 当前账号与模型，可在「设置」里切换</source>
         <translation>Current GXDE AI Core account and model; switch them in &quot;Settings&quot;</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="733"/>
+        <location filename="../src/chat/chatwindow.cpp" line="847"/>
         <source>工具权限</source>
         <translation>Tool approval</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="737"/>
+        <location filename="../src/chat/chatwindow.cpp" line="851"/>
         <source>每次确认：执行命令、改文件前在对话里询问
 自动允许编辑：改文件不再询问，执行命令仍会询问
 全部自动允许：不询问，直接执行
@@ -532,72 +552,72 @@ Approve everything: never ask, run right away
 Read only: only tools that read</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="777"/>
+        <location filename="../src/chat/chatwindow.cpp" line="891"/>
         <source>Enter 换行 · Ctrl+Enter 发送 · 支持拖入文件/链接/图片</source>
         <translation>Enter for newline · Ctrl+Enter to send · files, links and images can be dropped here</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="821"/>
+        <location filename="../src/chat/chatwindow.cpp" line="935"/>
         <source>停止回复</source>
         <translation>Stop reply</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="828"/>
+        <location filename="../src/chat/chatwindow.cpp" line="942"/>
         <source>重启 GXDE AI Core</source>
         <translation>Restart GXDE AI Core</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="835"/>
+        <location filename="../src/chat/chatwindow.cpp" line="949"/>
         <source>GXDE AI Core 已重启，MCP 服务器会在下一条消息时重新连接</source>
         <translation>GXDE AI Core restarted; MCP servers reconnect with the next message</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="1095"/>
+        <location filename="../src/chat/chatwindow.cpp" line="1218"/>
         <source>重命名对话</source>
         <translation>Rename conversation</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="1095"/>
+        <location filename="../src/chat/chatwindow.cpp" line="1218"/>
         <source>名称</source>
         <translation>Name</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="1147"/>
+        <location filename="../src/chat/chatwindow.cpp" line="1273"/>
         <source>未配置 AI Core 账号</source>
         <translation>No AI Core account</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="1327"/>
+        <location filename="../src/chat/chatwindow.cpp" line="1457"/>
         <source>GXDE 桌面的 AI 助手：传送门、内容工厂、待办与对话。</source>
         <translation>The AI assistant for the GXDE desktop: portal, content factory, todo and chat.</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="1339"/>
+        <location filename="../src/chat/chatwindow.cpp" line="1469"/>
         <source>小埃同学设置</source>
         <translation>AI See settings</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="1345"/>
+        <location filename="../src/chat/chatwindow.cpp" line="1475"/>
         <source>GXDE AI Core 账号</source>
         <translation>GXDE AI Core accounts</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="1366"/>
+        <location filename="../src/chat/chatwindow.cpp" line="1496"/>
         <source>额外要求</source>
         <translation>Extra instructions</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="1370"/>
+        <location filename="../src/chat/chatwindow.cpp" line="1500"/>
         <source>对话由 GXDE AI Core 处理：它保存账号与 API Key、管理上下文压缩，并运行工具和上面的 MCP 服务器。修改 MCP 或额外要求后，从下一条消息起生效。</source>
         <translation>Chats run on GXDE AI Core: it keeps the accounts and API keys, compresses the context and runs the tools and the MCP servers above. Changes to MCP servers or extra instructions apply from the next message.</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="1359"/>
+        <location filename="../src/chat/chatwindow.cpp" line="1489"/>
         <source>MCP 服务器（JSON）</source>
         <translation>MCP servers (JSON)</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatwindow.cpp" line="1398"/>
+        <location filename="../src/chat/chatwindow.cpp" line="1528"/>
         <source>MCP 配置不是合法的 JSON 数组，已忽略</source>
         <translation>The MCP configuration is not a valid JSON array; ignored</translation>
     </message>
@@ -654,7 +674,7 @@ to process by type</translation>
     <name>MessageRow</name>
     <message>
         <location filename="../src/chat/chatview.cpp" line="130"/>
-        <location filename="../src/chat/chatview.cpp" line="139"/>
+        <location filename="../src/chat/chatview.cpp" line="140"/>
         <source>你</source>
         <translation>You</translation>
     </message>
@@ -664,28 +684,28 @@ to process by type</translation>
         <translation>AI</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatview.cpp" line="139"/>
+        <location filename="../src/chat/chatview.cpp" line="140"/>
         <source>小埃</source>
         <translation>AI See</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatview.cpp" line="180"/>
+        <location filename="../src/chat/chatview.cpp" line="182"/>
         <source>复制</source>
         <translation>Copy</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatview.cpp" line="186"/>
-        <location filename="../src/chat/chatview.cpp" line="195"/>
+        <location filename="../src/chat/chatview.cpp" line="188"/>
+        <location filename="../src/chat/chatview.cpp" line="197"/>
         <source>编辑</source>
         <translation>Edit</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatview.cpp" line="191"/>
+        <location filename="../src/chat/chatview.cpp" line="193"/>
         <source>分支</source>
         <translation>Branch</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatview.cpp" line="199"/>
+        <location filename="../src/chat/chatview.cpp" line="201"/>
         <source>重试</source>
         <translation>Retry</translation>
     </message>
@@ -943,12 +963,12 @@ to choose a window</translation>
         <translation>Extra instructions from the user:</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatclient.cpp" line="63"/>
+        <location filename="../src/chat/chatclient.cpp" line="65"/>
         <source>以下是这段对话此前的记录（可能已截断），请在此基础上继续：</source>
         <translation>Here is the conversation so far (possibly truncated); continue from it:</translation>
     </message>
     <message>
-        <location filename="../src/chat/chatclient.cpp" line="67"/>
+        <location filename="../src/chat/chatclient.cpp" line="69"/>
         <source>用户的新消息：</source>
         <translation>New message from the user:</translation>
     </message>

@@ -352,19 +352,19 @@ ChatWindow::ChatWindow(QWidget *parent)
     }
 
     connect(m_client, &ChatClient::delta, this, [this](const QString &text) {
-        if (m_current < 0 || m_streamingIndex < 0 ||
-            m_streamingIndex >= m_conversations[m_current].messages.size()) {
+        ChatMessage *message = streamingMessage();
+        if (!message) {
             return;
         }
-        m_conversations[m_current].messages[m_streamingIndex].content += text;
-        m_messages->updateMessage(
-            m_streamingIndex,
-            m_conversations[m_current].messages[m_streamingIndex].content);
+        stopThinking();
+        message->content += text;
+        if (viewingStream()) {
+            m_messages->updateMessage(m_streamingIndex, message->content);
+        }
     });
     connect(m_client, &ChatClient::finished, this, [this](const QString &stopReason) {
-        if (m_current >= 0 && m_streamingIndex >= 0 &&
-            m_streamingIndex < m_conversations[m_current].messages.size()) {
-            ChatMessage &message = m_conversations[m_current].messages[m_streamingIndex];
+        if (ChatMessage *streamed = streamingMessage()) {
+            ChatMessage &message = *streamed;
             QString note;
             if (stopReason == QStringLiteral("max_tokens")) {
                 note = tr("（回复达到长度上限，已截断）");
@@ -379,18 +379,26 @@ ChatWindow::ChatWindow(QWidget *parent)
                 message.content += (message.content.isEmpty() ? QString() : QStringLiteral("\n\n"))
                     + note;
             }
-            m_conversations[m_current].updatedAt = QDateTime::currentMSecsSinceEpoch();
+            m_conversations[streamingConversation()].updatedAt =
+                QDateTime::currentMSecsSinceEpoch();
         }
         endTurn();
     });
     connect(m_client, &ChatClient::toolCall, this,
             [this](const QString &toolCallId, const QString &title, const QString &kind,
                    const QString &status) {
-                if (m_current < 0 || m_streamingIndex < 0 ||
-                    m_streamingIndex >= m_conversations[m_current].messages.size()) {
+                if (!streamingMessage()) {
                     return;
                 }
-                ChatMessage &message = m_conversations[m_current].messages[m_streamingIndex];
+                const bool done = status == QStringLiteral("completed") ||
+                                  status == QStringLiteral("failed");
+                /* the model is busy again once the tool handed back its result */
+                if (done) {
+                    startThinking();
+                } else {
+                    stopThinking();
+                }
+                ChatMessage &message = *streamingMessage();
                 const QString name = title.isEmpty() ? kind : title;
                 QString line;
                 if (!m_turnTools.contains(toolCallId)) {
@@ -408,7 +416,9 @@ ChatWindow::ChatWindow(QWidget *parent)
                                            : QStringLiteral("\n\n");
                 }
                 message.content += line + QLatin1Char('\n');
-                m_messages->updateMessage(m_streamingIndex, message.content);
+                if (viewingStream()) {
+                    m_messages->updateMessage(m_streamingIndex, message.content);
+                }
             });
     connect(m_client, &ChatClient::permissionRequested, this, &ChatWindow::askPermission);
     /* AI Core retries failed model requests silently: say so */
@@ -416,6 +426,10 @@ ChatWindow::ChatWindow(QWidget *parent)
     m_waitTimer->setInterval(5000);
     connect(m_waitTimer, &QTimer::timeout, this, &ChatWindow::onTurnWait);
     connect(m_client, &ChatClient::activity, this, &ChatWindow::noteTurnActivity);
+    m_thinkTimer = new QTimer(this);
+    m_thinkTimer->setInterval(1000);
+    connect(m_thinkTimer, &QTimer::timeout, this, &ChatWindow::showThinking);
+    connect(m_client, &ChatClient::thought, this, &ChatWindow::startThinking);
     connect(m_client, &ChatClient::permissionDropped, this, [this](const QString &key) {
         m_messages->removePermission(key);
         m_permissionKeys.remove(key);
@@ -425,9 +439,8 @@ ChatWindow::ChatWindow(QWidget *parent)
                 m_client->answerPermission(key, optionId);
             });
     connect(m_client, &ChatClient::failed, this, [this](const QString &error) {
-        if (m_current >= 0 && m_streamingIndex >= 0 &&
-            m_streamingIndex < m_conversations[m_current].messages.size()) {
-            ChatMessage &message = m_conversations[m_current].messages[m_streamingIndex];
+        if (ChatMessage *streamed = streamingMessage()) {
+            ChatMessage &message = *streamed;
             /* keep what already arrived; a bare error starts with the marker
              * so it is left out when the conversation is replayed */
             message.content = message.content.trimmed().isEmpty()
@@ -475,13 +488,107 @@ void ChatWindow::onTurnWait()
     m_waitNoteShown = true;
 }
 
+namespace {
+
+QString thinkingDuration(qint64 ms)
+{
+    const qint64 seconds = ms / 1000;
+    if (seconds < 60) {
+        return QCoreApplication::translate("ChatWindow", "%1秒").arg(seconds);
+    }
+    return QCoreApplication::translate("ChatWindow", "%1分%2秒")
+        .arg(seconds / 60)
+        .arg(seconds % 60, 2, 10, QLatin1Char('0'));
+}
+
+} // namespace
+
+void ChatWindow::startThinking()
+{
+    if (m_thinking || !streamingMessage()) {
+        return;
+    }
+    m_thinking = true;
+    m_thinkCard = true;
+    m_thinkClock.start();
+    m_thinkTimer->start();
+    showThinking();
+}
+
+void ChatWindow::stopThinking()
+{
+    if (!m_thinking) {
+        return;
+    }
+    m_thinking = false;
+    m_thoughtMs += m_thinkClock.elapsed();
+    m_thinkTimer->stop();
+    showThinking();
+}
+
+void ChatWindow::resetThinking()
+{
+    m_thinkTimer->stop();
+    m_thinking = false;
+    m_thinkCard = false;
+    m_thoughtMs = 0;
+    m_messages->setThinking(-1, QString(), false);
+}
+
+void ChatWindow::showThinking()
+{
+    if (!m_client->busy() || !streamingMessage()) {
+        resetThinking();
+        return;
+    }
+    if (!m_thinkCard || !viewingStream()) {
+        m_messages->setThinking(-1, QString(), false);
+        return;
+    }
+    const qint64 ms = m_thoughtMs + (m_thinking ? m_thinkClock.elapsed() : 0);
+    const QString text = m_thinking ? tr("💭 思考中 %1").arg(thinkingDuration(ms))
+                                    : tr("💭 已思考 %1").arg(thinkingDuration(ms));
+    m_messages->setThinking(m_streamingIndex, text, m_thinking);
+}
+
+int ChatWindow::streamingConversation() const
+{
+    if (m_streamingId.isEmpty()) {
+        return -1;
+    }
+    for (int i = 0; i < m_conversations.size(); ++i) {
+        if (m_conversations.at(i).id == m_streamingId) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+ChatMessage *ChatWindow::streamingMessage()
+{
+    const int conversation = streamingConversation();
+    if (conversation < 0 || m_streamingIndex < 0 ||
+        m_streamingIndex >= m_conversations.at(conversation).messages.size()) {
+        return nullptr;
+    }
+    return &m_conversations[conversation].messages[m_streamingIndex];
+}
+
+bool ChatWindow::viewingStream() const
+{
+    return !m_streamingId.isEmpty() && m_current >= 0 && m_current < m_conversations.size() &&
+           m_conversations.at(m_current).id == m_streamingId;
+}
+
 void ChatWindow::endTurn()
 {
+    resetThinking();
     m_waitTimer->stop();
     if (m_waitNoteShown) {
         m_waitNoteShown = false;
         m_status->hide();
     }
+    m_streamingId.clear();
     m_streamingIndex = -1;
     m_turnTools.clear();
     for (const QString &key : std::as_const(m_permissionKeys)) {
@@ -509,6 +616,7 @@ void ChatWindow::refreshAccountLabel()
 
 void ChatWindow::askPermission(const QString &key, const AiCorePermission &request)
 {
+    stopThinking();
     const QJsonObject call = request.toolCall;
     QString title = call.value(QStringLiteral("title")).toString().trimmed();
     if (title.isEmpty()) {
@@ -573,7 +681,8 @@ void ChatWindow::askPermission(const QString &key, const AiCorePermission &reque
     m_permissionKeys.insert(key);
     m_messages->showPermission(key, title, detail, options);
 
-    if (!isActiveWindow()) {
+    m_messages->setPermissionsVisible(viewingStream());
+    if (!isActiveWindow() || !viewingStream()) {
         notifyPermission(title);
     }
 }
@@ -602,6 +711,11 @@ void ChatWindow::onNotificationAction(uint id, const QString &action)
 {
     if (id == m_notificationId && !action.isEmpty()) {
         activateForAsk();
+        /* the confirmation waits in the conversation of the running turn */
+        const int streaming = streamingConversation();
+        if (streaming >= 0) {
+            selectConversation(streaming);
+        }
     }
 }
 
@@ -1001,11 +1115,6 @@ void ChatWindow::save() const
 
 void ChatWindow::newConversation()
 {
-    if (m_client->busy()) {
-        m_client->cancel();
-        m_streamingIndex = -1;
-    }
-
     ChatConversation conversation;
     conversation.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
     conversation.title = tr("新对话");
@@ -1024,10 +1133,7 @@ void ChatWindow::selectConversation(int index)
     if (index < 0 || index >= m_conversations.size() || index == m_current) {
         return;
     }
-    if (m_client->busy()) {
-        m_client->cancel();
-        m_streamingIndex = -1;
-    }
+    /* a running answer goes on in the background */
     m_current = index;
     renderConversation();
 }
@@ -1067,20 +1173,37 @@ void ChatWindow::deleteConversations(const QList<int> &rows)
     if (rows.isEmpty()) {
         return;
     }
-    if (m_client->busy()) {
-        m_client->cancel();
-        m_streamingIndex = -1;
-    }
+    const QString currentId =
+        m_current >= 0 && m_current < m_conversations.size() ? m_conversations.at(m_current).id
+                                                             : QString();
+    bool stopped = false;
     QList<int> sorted = rows;
     std::sort(sorted.begin(), sorted.end(), std::greater<int>());
     for (int row : sorted) {
         if (row >= 0 && row < m_conversations.size()) {
-            m_client->forget(m_conversations.at(row).id);
+            const QString id = m_conversations.at(row).id;
+            if (id == m_streamingId && m_client->busy()) {
+                m_client->cancel();
+                stopped = true;
+            }
+            m_client->forget(id);
             m_conversations.removeAt(row);
         }
     }
-    m_current = m_conversations.isEmpty() ? -1
-                                         : qBound(0, m_current, m_conversations.size() - 1);
+    /* stay on the shown conversation when it survived */
+    int current = -1;
+    for (int i = 0; i < m_conversations.size(); ++i) {
+        if (m_conversations.at(i).id == currentId) {
+            current = i;
+        }
+    }
+    m_current = current >= 0 ? current
+                : m_conversations.isEmpty() ? -1
+                                            : qBound(0, m_current, m_conversations.size() - 1);
+    if (stopped) {
+        endTurn(); // saves and redraws
+        return;
+    }
     save();
     updateSidebar();
     renderConversation();
@@ -1131,6 +1254,9 @@ void ChatWindow::updateSidebar()
 
 void ChatWindow::renderConversation()
 {
+    /* the turn's card and confirmations belong to its own conversation */
+    showThinking();
+    m_messages->setPermissionsVisible(viewingStream());
     if (m_current < 0 || m_conversations.isEmpty()) {
         m_messages->setMessages({});
         updateHeader();
@@ -1182,6 +1308,7 @@ void ChatWindow::requestCompletion()
     ChatConversation &conversation = m_conversations[m_current];
     const QVector<ChatMessage> history = conversation.messages;
     conversation.messages.append(ChatMessage{ QStringLiteral("assistant"), QString() });
+    m_streamingId = conversation.id;
     m_streamingIndex = conversation.messages.size() - 1;
     m_turnTools.clear();
     m_status->hide();
@@ -1191,6 +1318,9 @@ void ChatWindow::requestCompletion()
     m_lastActivity.start();
     m_waitTimer->start();
     m_client->send(conversation.id, history);
+    /* not every model streams its reasoning: the wait for the first word
+     * counts as thinking too */
+    startThinking();
     updateSendButton();
 }
 

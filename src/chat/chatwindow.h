@@ -80,6 +80,16 @@ private:
     void endTurn();
     void noteTurnActivity();
     void onTurnWait();
+    void startThinking();
+    void stopThinking();
+    void resetThinking();
+    void showThinking();
+    /** Index of the conversation the running turn answers, or -1. */
+    int streamingConversation() const;
+    /** The answer being streamed, wherever its conversation is. */
+    ChatMessage *streamingMessage();
+    /** Is the conversation of the running turn the one on screen? */
+    bool viewingStream() const;
     void updateSendButton();
     void refreshAccountLabel();
     void askPermission(const QString &key, const AiCorePermission &request);
@@ -118,6 +128,9 @@ private:
 
     QVector<ChatConversation> m_conversations;
     int m_current = -1;
+    /* the running turn: its conversation (by id, the list can be reordered
+     * and the user can look at other conversations meanwhile) and answer */
+    QString m_streamingId;
     int m_streamingIndex = -1;
     /* tool calls already shown in the streaming answer */
     QSet<QString> m_turnTools;
@@ -130,5 +143,12 @@ private:
     QTimer *m_waitTimer = nullptr;
     QElapsedTimer m_lastActivity;
     bool m_waitNoteShown = false;
+    /* time the model spent working out of sight (reasoning, or before the
+     * first word / after a tool), shown on the thinking card */
+    QTimer *m_thinkTimer = nullptr;
+    QElapsedTimer m_thinkClock;
+    qint64 m_thoughtMs = 0; // finished thinking phases
+    bool m_thinking = false;
+    bool m_thinkCard = false; // the card is up for this turn
     QString m_storePath;
 };

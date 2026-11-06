@@ -7,7 +7,8 @@
 // key store) in a temporary directory and talks to tests/api/fake_openai.py.
 // Covered: account save/activate over ACP, tool approval, MCP servers handed
 // to the session, session reuse vs. rebuild with a replayed history, the
-// approval modes and cancelling a turn that waits for approval.
+// approval modes, cancelling a turn that waits for approval and the model's
+// reasoning arriving apart from the answer.
 
 #include <QCoreApplication>
 #include <QDir>
@@ -131,6 +132,8 @@ int main(int argc, char *argv[])
     };
 
     ChatClient client;
+    /* reasoning of the running step, see ChatClient::thought */
+    QString thoughts;
     QVector<Step> steps;
     int stepsUsers = -1;
 
@@ -219,6 +222,19 @@ int main(int argc, char *argv[])
             return text.contains(QStringLiteral("replay=")) ? QString()
                                                             : QStringLiteral("answer: ") + text;
         } });
+    steps.append(Step{
+        QStringLiteral("reasoning streams as thoughts, apart from the answer"),
+        QStringLiteral("c5"),
+        { user(QStringLiteral("think first")) },
+        QStringLiteral("default"),
+        false,
+        [&](const QString &answer, int) -> QString {
+            if (!thoughts.contains(QStringLiteral("先想一想"))) {
+                return QStringLiteral("thoughts: ") + thoughts;
+            }
+            return answer.trimmed() == QStringLiteral("想好了") ? QString()
+                                                                : QStringLiteral("answer: ") + answer;
+        } });
 
     int current = -1;
     QString text;
@@ -226,6 +242,8 @@ int main(int argc, char *argv[])
     std::function<void()> next;
 
     QObject::connect(&client, &ChatClient::delta, [&](const QString &chunk) { text += chunk; });
+    QObject::connect(&client, &ChatClient::thought,
+                     [&](const QString &chunk) { thoughts += chunk; });
     QObject::connect(&client, &ChatClient::toolCall,
                      [&](const QString &, const QString &title, const QString &,
                          const QString &status) {
@@ -284,6 +302,7 @@ int main(int argc, char *argv[])
         }
         const Step &step = steps.at(current);
         text.clear();
+        thoughts.clear();
         permissions = 0;
         out << "step " << step.name << "\n";
         out.flush();

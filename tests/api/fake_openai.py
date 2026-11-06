@@ -9,6 +9,7 @@ last message:
 * a tool result            -> "完成：<tool output>"
 * user text with "shell"   -> a run_shell_command call that creates a file
 * user text with "mcp"     -> a call of the MCP ``echo`` tool
+* user text with "think"   -> reasoning_content first, then "想好了"
 * anything else            -> "users=<n> replay=<yes|no>", which tells the
   test whether the session was reused (n grows) or rebuilt from a replay.
 """
@@ -62,6 +63,10 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 chunks = [chunk({"role": "assistant",
                                  "content": "no echo tool: " + ",".join(tools)}, "stop")]
+        elif "think" in asked:
+            chunks = [chunk({"role": "assistant", "reasoning_content": "先想一想"}),
+                      chunk({"reasoning_content": "……"}),
+                      chunk({"content": "想好了"}, "stop")]
         else:
             replay = any("此前的记录" in text_of(m) for m in users)
             chunks = [chunk({"role": "assistant",

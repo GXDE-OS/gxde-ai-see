@@ -344,6 +344,13 @@ void ChatClient::handleUpdate(const QString &sessionId, const QJsonObject &updat
                 Q_EMIT delta(text);
             }
         }
+    } else if (kind == QStringLiteral("agent_thought_chunk")) {
+        const QJsonObject content = update.value(QStringLiteral("content")).toObject();
+        const QString text = content.value(QStringLiteral("text")).toString();
+        if (content.value(QStringLiteral("type")).toString() == QStringLiteral("text") &&
+                !text.isEmpty()) {
+            Q_EMIT thought(text);
+        }
     } else if (kind == QStringLiteral("tool_call") ||
                kind == QStringLiteral("tool_call_update")) {
         Q_EMIT toolCall(update.value(QStringLiteral("toolCallId")).toString(),
