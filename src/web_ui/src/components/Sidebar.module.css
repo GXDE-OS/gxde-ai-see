@@ -7,3 +7,14 @@
 .sectionLabel {
   margin-right: auto;
 }
+
+.hoverPreview {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 16px;
+  color: #CFD3D6;
+  overflow-wrap: anywhere;
+}

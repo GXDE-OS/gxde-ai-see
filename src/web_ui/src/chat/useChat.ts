@@ -15,6 +15,8 @@ interface State {
 type Action =
   | { type: 'load'; store: ConversationStore }
   | { type: 'open'; id: string | null }
+  | { type: 'rename'; id: string; title: string }
+  | { type: 'remove'; ids: string[] }
   | { type: 'send'; conversation: Conversation }
   | { type: 'delta'; id: string; text: string }
   | { type: 'end'; id: string; note: string; time: number }
@@ -42,6 +44,20 @@ function reduce(state: State, action: Action): State {
       return { ...state, loaded: true, conversations: [...(action.store.conversations ?? [])].sort(byRecent) }
     case 'open':
       return { ...state, currentId: action.id }
+    case 'rename':
+      return {
+        ...state,
+        conversations: state.conversations.map(conversation =>
+          conversation.id === action.id ? { ...conversation, title: action.title } : conversation),
+        revision: state.revision + 1,
+      }
+    case 'remove':
+      return {
+        ...state,
+        conversations: state.conversations.filter(conversation => !action.ids.includes(conversation.id)),
+        currentId: state.currentId !== null && action.ids.includes(state.currentId) ? null : state.currentId,
+        revision: state.revision + 1,
+      }
     case 'send': {
       const others = state.conversations.filter(conversation => conversation.id !== action.conversation.id)
       return {
@@ -80,6 +96,8 @@ export interface Chat {
   current: Conversation | undefined
   running: boolean
   open: (id: string | null) => void
+  rename: (id: string, title: string) => void
+  remove: (ids: string[]) => void
   send: ((text: string) => void) | undefined
   stop: () => void
 }
@@ -138,6 +156,15 @@ export function useChat(): Chat {
     dispatch({ type: 'open', id })
   }, [])
 
+  const rename = useCallback((id: string, title: string) => {
+    dispatch({ type: 'rename', id, title })
+  }, [])
+
+  const remove = useCallback((ids: string[]) => {
+    for (const id of ids) bridge?.forget(id)
+    dispatch({ type: 'remove', ids })
+  }, [bridge])
+
   const stop = useCallback(() => {
     bridge?.cancel()
   }, [bridge])
@@ -147,6 +174,8 @@ export function useChat(): Chat {
     current,
     running: current !== undefined && state.running === current.id,
     open,
+    rename,
+    remove,
     send: bridge === null ? undefined : send,
     stop,
   }

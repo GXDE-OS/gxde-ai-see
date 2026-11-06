@@ -35,6 +35,8 @@ export function App() {
             chat.open(null)
           }}
           onOpen={chat.open}
+          onRename={chat.rename}
+          onDelete={chat.remove}
         />
       </div>
       <div className={frame.centerCol}>
