@@ -39,9 +39,12 @@ function useComposerHeight(scroller: HTMLElement | null, seat: HTMLElement | nul
 
 export interface ConversationPanelProps {
   conversation: Conversation | undefined
+  running: boolean
+  onSend: ((text: string) => void) | undefined
+  onStop: () => void
 }
 
-export function ConversationPanel({ conversation }: ConversationPanelProps) {
+export function ConversationPanel({ conversation, running, onSend, onStop }: ConversationPanelProps) {
   const hero = conversation === undefined
   const phase = hero ? 'hero' : 'active'
   const [body, setBody] = useState<HTMLDivElement | null>(null)
@@ -70,13 +73,13 @@ export function ConversationPanel({ conversation }: ConversationPanelProps) {
         <div ref={setScroller} className={cr.scrollBody} data-conversation-scroll="">
           {!hero && (
             <div className={cr.viewArea}>
-              <ChatView key={conversation.id} messages={conversation.messages} scroller={scroller} />
+              <ChatView key={conversation.id} messages={conversation.messages} running={running} scroller={scroller} />
             </div>
           )}
           <div ref={setSeat} className={cr.composerSeat} data-composer-seat="">
             <div className={clsx(cr.composerStack, hero && cr.composerHero)}>
               {hero && <HeroShell />}
-              <Composer variant={hero ? 'hero' : 'composer'} />
+              <Composer variant={hero ? 'hero' : 'composer'} running={running} onSend={onSend} onStop={onStop} />
             </div>
           </div>
         </div>

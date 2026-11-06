@@ -17,27 +17,35 @@ const SEND_GLYPH = (
   </svg>
 )
 
+const STOP_GLYPH = (
+  <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
+    <rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" />
+  </svg>
+)
+
 const keepFocus = (event: MouseEvent) => {
   event.preventDefault()
 }
 
 export interface ComposerProps {
   variant: 'hero' | 'composer'
-  onSend?: (text: string) => void
+  running?: boolean
+  onSend?: ((text: string) => void) | undefined
+  onStop?: () => void
 }
 
-export function Composer({ variant, onSend }: ComposerProps) {
+export function Composer({ variant, running = false, onSend, onStop }: ComposerProps) {
   const [text, setText] = useState('')
   const textarea = useRef<HTMLTextAreaElement>(null)
 
   const empty = text.trim() === ''
   const submit = () => {
-    if (empty || onSend === undefined) return
+    if (running || empty || onSend === undefined) return
     onSend(text)
     setText('')
   }
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+    if (event.key !== 'Enter' || !event.ctrlKey || event.nativeEvent.isComposing) return
     event.preventDefault()
     submit()
   }
@@ -75,16 +83,24 @@ export function Composer({ variant, onSend }: ComposerProps) {
         <div className={ib.row}>
           <div className={ib.tools} />
           <div className={ib.trailing}>
-            <button
-              type="button"
-              className={ib.primary}
-              aria-label={t.send}
-              disabled={empty || onSend === undefined}
-              onMouseDown={keepFocus}
-              onClick={submit}
-            >
-              {SEND_GLYPH}
-            </button>
+            {running
+              ? (
+                  <button type="button" className={ib.primary} aria-label={t.stop} onMouseDown={keepFocus} onClick={onStop}>
+                    {STOP_GLYPH}
+                  </button>
+                )
+              : (
+                  <button
+                    type="button"
+                    className={ib.primary}
+                    aria-label={t.send}
+                    disabled={empty || onSend === undefined}
+                    onMouseDown={keepFocus}
+                    onClick={submit}
+                  >
+                    {SEND_GLYPH}
+                  </button>
+                )}
           </div>
         </div>
       </div>

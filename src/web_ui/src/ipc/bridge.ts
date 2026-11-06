@@ -11,6 +11,8 @@ export type Role = 'system' | 'user' | 'assistant'
 export interface ChatMessage {
   role: Role
   content: string
+  /** Unix epoch ms: sent for the user's, finished for the assistant's. */
+  time?: number
 }
 
 export interface Conversation {

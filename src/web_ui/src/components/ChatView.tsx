@@ -3,9 +3,10 @@
  * AssistantMarkdown, MessageIconActions and TurnTailNodeView
  * (MIT, see src/vendor/dsh/README.md).
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import clsx from 'clsx'
+import { formatClock, useCalendarDay } from '../chat/clock'
 import { t } from '../chat/strings'
 import type { ChatMessage } from '../ipc/bridge'
 import { writeClipboard } from '../vendor/dsh/primitives/clipboard.ts'
@@ -30,7 +31,15 @@ const LABELS: MarkdownLabels = {
 
 const FOLLOW_SLACK = 32
 
-function MessageActions({ text, clock, className }: { text: string; clock: 'start' | 'end'; className?: string }) {
+interface MessageActionsProps {
+  text: string
+  time: number | undefined
+  clock: 'start' | 'end'
+  className?: string
+}
+
+function MessageActions({ text, time, clock, className }: MessageActionsProps) {
+  const day = useCalendarDay()
   const [copied, setCopied] = useState(false)
   const timer = useRef<number | undefined>(undefined)
   useEffect(() => () => {
@@ -47,24 +56,29 @@ function MessageActions({ text, clock, className }: { text: string; clock: 'star
     })
   }, [copied, text])
   const label = copied ? t.copied : t.copy
+  const clockEl = time === undefined
+    ? null
+    : <span className={clock === 'start' ? ma.timeStart : ma.timeEnd}>{formatClock(time, day)}</span>
   return (
     <div className={clsx(ma.actions, className)} data-clock={clock}>
+      {clock === 'start' && clockEl}
       <Tooltip label={label} side="bottom">
         <button type="button" className={ma.action} aria-label={label} onClick={onCopy}>
           {copied ? <IconCheckOutlineRegular /> : <IconCopyOutlineRegular />}
         </button>
       </Tooltip>
+      {clock === 'end' && <span className={ma.endInfo}>{clockEl}</span>}
     </div>
   )
 }
 
-function UserMessage({ text }: { text: string }) {
+function UserMessage({ text, time }: { text: string; time: number | undefined }) {
   return (
     <div className={mi.userRow}>
       <div className={mi.userStack}>
         <div className={mi.bubble}>{text}</div>
       </div>
-      <MessageActions text={text} clock="start" />
+      <MessageActions text={text} time={time} clock="start" />
     </div>
   )
 }
@@ -79,10 +93,10 @@ function AssistantMessage({ text }: { text: string }) {
   )
 }
 
-function TurnTail({ text }: { text: string }) {
+function TurnTail({ text, time }: { text: string; time: number | undefined }) {
   return (
     <div className={tt.root} data-actions-reveal="always">
-      <MessageActions text={text} clock="end" className={tt.actions} />
+      <MessageActions text={text} time={time} clock="end" className={tt.actions} />
     </div>
   )
 }
@@ -95,7 +109,7 @@ function FlowItem({ kind, children }: { kind: 'user' | 'assistant' | 'turn-tail'
   )
 }
 
-function useFollowTail(scroller: HTMLElement | null, content: HTMLElement | null): [boolean, () => void] {
+function useFollowTail(scroller: HTMLElement | null, content: HTMLElement | null): [boolean, (behavior?: ScrollBehavior) => void] {
   const [following, setFollowing] = useState(true)
   const followingRef = useRef(true)
 
@@ -124,8 +138,8 @@ function useFollowTail(scroller: HTMLElement | null, content: HTMLElement | null
     }
   }, [scroller, content])
 
-  const returnToBottom = useCallback(() => {
-    scroller?.scrollTo({ top: scroller.scrollHeight, behavior: 'smooth' })
+  const returnToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    scroller?.scrollTo({ top: scroller.scrollHeight, behavior })
   }, [scroller])
 
   return [following, returnToBottom]
@@ -133,12 +147,19 @@ function useFollowTail(scroller: HTMLElement | null, content: HTMLElement | null
 
 export interface ChatViewProps {
   messages: ChatMessage[]
+  running: boolean
   scroller: HTMLElement | null
 }
 
-export function ChatView({ messages, scroller }: ChatViewProps) {
+export function ChatView({ messages, running, scroller }: ChatViewProps) {
   const [column, setColumn] = useState<HTMLDivElement | null>(null)
   const [following, returnToBottom] = useFollowTail(scroller, column)
+
+  // Sending brings the reader back to the end, wherever they had scrolled.
+  const sent = messages.filter(message => message.role === 'user').length
+  useLayoutEffect(() => {
+    returnToBottom('instant')
+  }, [sent, returnToBottom])
 
   return (
     <div className={cv.frame}>
@@ -147,15 +168,15 @@ export function ChatView({ messages, scroller }: ChatViewProps) {
           <div ref={setColumn} className={cv.column} data-chat-flow="">
             {messages.flatMap((message, index) => {
               if (message.role === 'user') {
-                return [<FlowItem key={index} kind="user"><UserMessage text={message.content} /></FlowItem>]
+                return [<FlowItem key={index} kind="user"><UserMessage text={message.content} time={message.time} /></FlowItem>]
               }
-              if (message.role === 'assistant' && message.content !== '') {
-                return [
-                  <FlowItem key={index} kind="assistant"><AssistantMessage text={message.content} /></FlowItem>,
-                  <FlowItem key={`${index}:tail`} kind="turn-tail"><TurnTail text={message.content} /></FlowItem>,
-                ]
-              }
-              return []
+              if (message.role !== 'assistant' || message.content === '') return []
+              const reply = <FlowItem key={index} kind="assistant"><AssistantMessage text={message.content} /></FlowItem>
+              if (running && index === messages.length - 1) return [reply]
+              return [
+                reply,
+                <FlowItem key={`${index}:tail`} kind="turn-tail"><TurnTail text={message.content} time={message.time} /></FlowItem>,
+              ]
             })}
           </div>
           <div className={cv.turnSpacer} aria-hidden="true" />
@@ -163,7 +184,9 @@ export function ChatView({ messages, scroller }: ChatViewProps) {
       </div>
       {!following && (
         <div className={cv.toBottomSlot}>
-          <button type="button" className={cv.toBottom} aria-label={t.toBottom} onClick={returnToBottom}>
+          <button type="button" className={cv.toBottom} aria-label={t.toBottom} onClick={() => {
+            returnToBottom()
+          }}>
             <IconChevronDownOutlineRegular />
           </button>
         </div>
