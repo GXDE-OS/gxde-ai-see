@@ -171,8 +171,16 @@ add_executable(gxde-ai-see-themetest
 target_include_directories(gxde-ai-see-themetest PRIVATE src)
 target_link_libraries(gxde-ai-see-themetest PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets)
 
-# translations
-find_program(LRELEASE_EXECUTABLE NAMES lrelease lrelease6)
+find_package(Qt6 QUIET COMPONENTS LinguistTools)
+if (TARGET Qt6::lrelease)
+    set(LRELEASE_EXECUTABLE Qt6::lrelease)
+else()
+    find_program(LRELEASE_EXECUTABLE NAMES lrelease
+        HINTS "${QT6_INSTALL_PREFIX}/${QT6_INSTALL_BINS}"
+              "${QT6_INSTALL_PREFIX}/${QT6_INSTALL_LIBEXECS}"
+        NO_DEFAULT_PATH)
+    find_program(LRELEASE_EXECUTABLE NAMES lrelease-qt6 lrelease6)
+endif()
 file(GLOB TS_FILES ${CMAKE_CURRENT_SOURCE_DIR}/translations/*.ts)
 if (LRELEASE_EXECUTABLE AND TS_FILES)
     set(QM_FILES)
