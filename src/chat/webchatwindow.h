@@ -28,6 +28,7 @@ private slots:
 
 private:
     void notifyPermission(const QString &title);
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
     ChatBridge *m_bridge = nullptr;
     QWebEngineView *m_view = nullptr;

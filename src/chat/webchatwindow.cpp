@@ -6,13 +6,16 @@
 #include "config.h"
 #include "aicoreaccounts.h"
 #include "chatbridge.h"
+#include "ui/aboutdialog.h"
 
 #include <DTitlebar>
 #include <QApplication>
 #include <QDBusConnection>
 #include <QDBusMessage>
 #include <QDesktopServices>
+#include <QDropEvent>
 #include <QGuiApplication>
+#include <QMimeData>
 #include <QScreen>
 #include <QUrl>
 #include <QWebEngineNewWindowRequest>
@@ -74,6 +77,12 @@ WebChatWindow::WebChatWindow(QWidget *parent)
                 QDesktopServices::openUrl(request.requestedUrl());
             });
     m_view->load(webUiUrl());
+    // Chromium hides the paths of dropped files from the page, so drops with
+    // local files are taken here; the widget under the cursor may be a child.
+    m_view->installEventFilter(this);
+    for (QObject *child : m_view->children()) {
+        child->installEventFilter(this);
+    }
 
     // Send a notifition if user's permission is EXPLICITLY required
     // This is common when a tool call/shell command is pending
@@ -81,6 +90,10 @@ WebChatWindow::WebChatWindow(QWidget *parent)
         if (!isActiveWindow()) {
             notifyPermission(title);
         }
+    });
+
+    connect(m_bridge, &ChatBridge::aboutRequested, this, [this]() {
+        showAboutDialog(this, tr("GXDE 桌面的 AI 助手：传送门、内容工厂、待办与对话。"));
     });
 
     QDBusConnection::sessionBus().connect(
@@ -127,6 +140,35 @@ void WebChatWindow::notifyPermission(const QString &title)
                                                    SLOT(onNotificationSent(uint)));
 }
 
+bool WebChatWindow::eventFilter(QObject *watched, QEvent *event)
+{
+    if (event->type() == QEvent::ChildAdded && watched == m_view) {
+        static_cast<QChildEvent *>(event)->child()->installEventFilter(this);
+    }
+    if (event->type() != QEvent::Drop || !watched->isWidgetType()) {
+        return DMainWindow::eventFilter(watched, event);
+    }
+
+    auto *drop = static_cast<QDropEvent *>(event);
+    const QList<QUrl> urls = drop->mimeData()->urls();
+    if (std::none_of(urls.cbegin(), urls.cend(), [](const QUrl &url) { return url.isLocalFile(); })) {
+        return DMainWindow::eventFilter(watched, event);
+    }
+
+    QStringList dropped;
+    for (const QUrl &url : urls) {
+        dropped.append(url.toString(QUrl::FullyEncoded));
+    }
+    auto *widget = static_cast<QWidget *>(watched);
+    const QPointF at = QPointF(widget->mapTo(m_view, drop->position().toPoint())) / m_view->zoomFactor();
+    drop->acceptProposedAction();
+    /* end the page's drag as if it left */
+    QDragLeaveEvent leave;
+    QCoreApplication::sendEvent(watched, &leave);
+    Q_EMIT m_bridge->urlsDropped(dropped, at.x(), at.y());
+    return true;
+}
+
 void WebChatWindow::onNotificationSent(uint id)
 {
     m_notificationId = id;
@@ -136,5 +178,7 @@ void WebChatWindow::onNotificationAction(uint id, const QString &action)
 {
     if (id == m_notificationId && !action.isEmpty()) {
         activateForAsk();
+        /* the confirmation waits in the conversation of the running turn */
+        m_bridge->revealTurn();
     }
 }

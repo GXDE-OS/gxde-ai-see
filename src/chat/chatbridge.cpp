@@ -6,10 +6,13 @@
 #include "chatclient.h"
 #include "config.h"
 
+#include <QDir>
 #include <QFile>
+#include <QImage>
 #include <QJsonDocument>
 #include <QPointer>
 #include <QSaveFile>
+#include <QUuid>
 #include <QWebChannel>
 #include <QWebEnginePage>
 #include <QWebEngineScript>
@@ -147,7 +150,8 @@ QJsonArray ChatBridge::modes() const
     return result;
 }
 
-void ChatBridge::send(const QString &conversationId, const QJsonArray &history)
+void ChatBridge::send(const QString &conversationId, const QJsonArray &history,
+                      const QString &providerAccountId, const QString &model)
 {
     /* ChatClient::send() drops a running turn without a word */
     if (busy()) {
@@ -164,7 +168,7 @@ void ChatBridge::send(const QString &conversationId, const QJsonArray &history)
 
     m_turnConversation = conversationId;
     Q_EMIT busyChanged();
-    m_client->send(conversationId, messages);
+    m_client->send(conversationId, messages, { providerAccountId, model });
 }
 
 void ChatBridge::cancel()
@@ -238,12 +242,73 @@ void ChatBridge::activateAccount(int callId, const QString &id, const QString &m
     AiCore::instance()->activateAccount(id, model, replyTo(callId));
 }
 
+QJsonObject ChatBridge::settings() const
+{
+    Config *config = Config::instance();
+    return { { QStringLiteral("mcpServers"),
+               config->get(QStringLiteral("chat/mcpServers")).toString() },
+             { QStringLiteral("systemPrompt"),
+               config->get(QStringLiteral("chat/systemPrompt")).toString() } };
+}
+
+QString ChatBridge::saveSettings(const QJsonObject &settings)
+{
+    const QString mcp = settings.value(QStringLiteral("mcpServers")).toString().trimmed();
+    if (!mcp.isEmpty() && !QJsonDocument::fromJson(mcp.toUtf8()).isArray()) {
+        return tr("MCP 配置不是合法的 JSON 数组");
+    }
+    const QString systemPrompt = settings.value(QStringLiteral("systemPrompt")).toString();
+
+    Config *config = Config::instance();
+    const bool changed = config->get(QStringLiteral("chat/mcpServers")).toString() != mcp ||
+                         config->get(QStringLiteral("chat/systemPrompt")).toString() != systemPrompt;
+    config->set(QStringLiteral("chat/mcpServers"), mcp);
+    config->set(QStringLiteral("chat/systemPrompt"), systemPrompt);
+    config->sync();
+
+    /* sessions get MCP servers and instructions when they start */
+    if (changed) {
+        m_client->resetSessions();
+    }
+    return QString();
+}
+
+void ChatBridge::restartCore()
+{
+    cancel();
+    AiCore::instance()->stop();
+}
+
+void ChatBridge::showAbout()
+{
+    Q_EMIT aboutRequested();
+}
+
+QString ChatBridge::saveImage(const QString &base64)
+{
+    const QImage image = QImage::fromData(QByteArray::fromBase64(base64.toLatin1()));
+    if (image.isNull()) {
+        return QString();
+    }
+    const QString dir = Config::instance()->cacheDir() + QStringLiteral("/chat");
+    QDir().mkpath(dir);
+    const QString path = dir + QLatin1Char('/') +
+                         QUuid::createUuid().toString(QUuid::WithoutBraces) +
+                         QStringLiteral(".png");
+    return image.save(path) ? path : QString();
+}
+
+void ChatBridge::revealTurn()
+{
+    Q_EMIT turnRevealRequested();
+}
+
 AiCore::Callback ChatBridge::replyTo(int callId)
 {
     return [self = QPointer<ChatBridge>(this), callId](const QJsonValue &result,
                                                        const QString &error) {
         if (self) {
-            Q_EMIT self->replied(callId, result,
+            Q_EMIT self->replied(callId, result.toVariant(),
                                  error.isEmpty() ? QString() : AiCore::friendlyError(error));
         }
     };

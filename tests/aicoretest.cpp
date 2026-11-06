@@ -7,8 +7,9 @@
 // key store) in a temporary directory and talks to tests/api/fake_openai.py.
 // Covered: account save/activate over ACP, tool approval, MCP servers handed
 // to the session, session reuse vs. rebuild with a replayed history, the
-// approval modes, cancelling a turn that waits for approval and the model's
-// reasoning arriving apart from the answer.
+// approval modes, cancelling a turn that waits for approval, the model's
+// reasoning arriving apart from the answer and conversations answering with
+// the account and model they picked.
 
 #include <QCoreApplication>
 #include <QDir>
@@ -40,6 +41,8 @@ struct Step
     bool cancelOnPermission = false;
     /* text is the whole streamed answer; return an error or an empty string */
     std::function<QString(const QString &text, int permissions)> check;
+    /* accountId "other" stands for the second account */
+    ChatProvider provider = {};
 };
 
 ChatMessage user(const QString &text)
@@ -120,6 +123,18 @@ int main(int argc, char *argv[])
             exitCode = 1;
         }
     };
+
+    const QJsonObject other{
+        { QStringLiteral("name"), QStringLiteral("other") },
+        { QStringLiteral("providerId"), QStringLiteral("custom") },
+        { QStringLiteral("protocol"), QStringLiteral("openai") },
+        { QStringLiteral("baseUrl"), QStringLiteral("http://127.0.0.1:%1/v1").arg(port) },
+        { QStringLiteral("models"),
+          QJsonArray{ QJsonObject{ { QStringLiteral("id"), QStringLiteral("other-a") } },
+                      QJsonObject{ { QStringLiteral("id"), QStringLiteral("other-b") } } } },
+        { QStringLiteral("model"), QStringLiteral("other-a") },
+    };
+    QString otherId;
 
     const QJsonObject account{
         { QStringLiteral("name"), QStringLiteral("fake") },
@@ -236,6 +251,42 @@ int main(int argc, char *argv[])
                                                                 : QStringLiteral("answer: ") + answer;
         } });
 
+    steps.append(Step{
+        QStringLiteral("a conversation answers with the account it picked"),
+        QStringLiteral("c6"),
+        { user(QStringLiteral("which model")) },
+        QStringLiteral("default"),
+        false,
+        [&](const QString &text, int) -> QString {
+            return text.contains(QStringLiteral("model=other-a")) ? QString()
+                                                                  : QStringLiteral("answer: ") + text;
+        },
+        { QStringLiteral("other"), QStringLiteral("other-a") } });
+    steps.append(Step{
+        QStringLiteral("picking another model keeps the session"),
+        QStringLiteral("c6"),
+        { user(QStringLiteral("which model")), assistant(QStringLiteral("model=other-a")),
+          user(QStringLiteral("which model now")) },
+        QStringLiteral("default"),
+        false,
+        [&](const QString &text, int) -> QString {
+            return text.contains(QStringLiteral("model=other-b")) &&
+                           text.contains(QStringLiteral("replay=no"))
+                       ? QString()
+                       : QStringLiteral("answer: ") + text;
+        },
+        { QStringLiteral("other"), QStringLiteral("other-b") } });
+    steps.append(Step{
+        QStringLiteral("other conversations stay on the default account"),
+        QStringLiteral("c7"),
+        { user(QStringLiteral("which model")) },
+        QStringLiteral("default"),
+        false,
+        [&](const QString &text, int) -> QString {
+            return text.contains(QStringLiteral("model=fake-model")) ? QString()
+                                                                     : QStringLiteral("answer: ") + text;
+        } });
+
     int current = -1;
     QString text;
     int permissions = 0;
@@ -307,7 +358,11 @@ int main(int argc, char *argv[])
         out << "step " << step.name << "\n";
         out.flush();
         client.setMode(step.mode);
-        client.send(step.conversation, step.history);
+        ChatProvider provider = step.provider;
+        if (provider.accountId == QStringLiteral("other")) {
+            provider.accountId = otherId;
+        }
+        client.send(step.conversation, step.history, provider);
     };
 
     AiCore::instance()->saveAccount(
@@ -330,7 +385,23 @@ int main(int argc, char *argv[])
                         app.quit();
                         return;
                     }
-                    next();
+                    /* a second account, not the default, for conversations to pick */
+                    AiCore::instance()->saveAccount(
+                        other, QStringLiteral("sk-other"),
+                        [&](const QJsonValue &savedOther, const QString &otherError) {
+                            otherId = savedOther.toObject()
+                                          .value(QStringLiteral("account"))
+                                          .toObject()
+                                          .value(QStringLiteral("id"))
+                                          .toString();
+                            finish(otherError.isEmpty(),
+                                   QStringLiteral("second account saved ") + otherError);
+                            if (!otherError.isEmpty()) {
+                                app.quit();
+                                return;
+                            }
+                            next();
+                        });
                 });
         });
 

@@ -10,12 +10,21 @@
 #include <QString>
 #include <QVector>
 
+#include <functional>
+
 #include "aicore.h"
 
 struct ChatMessage
 {
     QString role; // system / user / assistant
     QString content;
+};
+
+/** An AI Core provider account and model; empty means the account set as default. */
+struct ChatProvider
+{
+    QString accountId;
+    QString model;
 };
 
 /**
@@ -45,7 +54,8 @@ public:
      * Answer the last message of \a history, which must be the user's.
      * \a conversationId ties the turn to its AI Core session.
      */
-    void send(const QString &conversationId, const QVector<ChatMessage> &history);
+    void send(const QString &conversationId, const QVector<ChatMessage> &history,
+              const ChatProvider &provider);
     void cancel();
 
     /** Drop the session of a conversation that was deleted. */
@@ -85,9 +95,14 @@ private:
         QString id;
         /* conversation messages the session has seen */
         int synced = 0;
+        ChatProvider provider;
     };
 
-    void startTurn(const QString &conversationId, const QVector<ChatMessage> &history);
+    void startTurn(const QString &conversationId, const QVector<ChatMessage> &history,
+                   const ChatProvider &provider);
+    /** Switch the session to \a provider if it is on another, then run \a then. */
+    void useProvider(const QString &conversationId, const QString &sessionId,
+                     const ChatProvider &provider, const std::function<void()> &then);
     void prompt(const QString &conversationId, const QString &sessionId,
                 const QJsonArray &blocks, int syncedAfter);
     void endTurn();

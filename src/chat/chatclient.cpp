@@ -130,17 +130,19 @@ ChatClient::~ChatClient()
     cancel();
 }
 
-void ChatClient::send(const QString &conversationId, const QVector<ChatMessage> &history)
+void ChatClient::send(const QString &conversationId, const QVector<ChatMessage> &history,
+                      const ChatProvider &provider)
 {
     cancel();
     if (history.isEmpty() || history.constLast().role != QStringLiteral("user")) {
         Q_EMIT failed(tr("没有要发送的消息"));
         return;
     }
-    startTurn(conversationId, history);
+    startTurn(conversationId, history, provider);
 }
 
-void ChatClient::startTurn(const QString &conversationId, const QVector<ChatMessage> &history)
+void ChatClient::startTurn(const QString &conversationId, const QVector<ChatMessage> &history,
+                           const ChatProvider &provider)
 {
     m_turnConversation = conversationId;
     m_turnSession.clear();
@@ -152,7 +154,10 @@ void ChatClient::startTurn(const QString &conversationId, const QVector<ChatMess
 
     const auto it = m_sessions.constFind(conversationId);
     if (it != m_sessions.constEnd() && it->synced == earlier) {
-        prompt(conversationId, it->id, QJsonArray{ textBlock(text) }, syncedAfter);
+        const QString sessionId = it->id;
+        useProvider(conversationId, sessionId, provider, [=, this]() {
+            prompt(conversationId, sessionId, QJsonArray{ textBlock(text) }, syncedAfter);
+        });
         return;
     }
     m_sessions.remove(conversationId);
@@ -205,9 +210,56 @@ void ChatClient::startTurn(const QString &conversationId, const QVector<ChatMess
                                    { { QStringLiteral("sessionId"), sessionId },
                                      { QStringLiteral("modeId"), m_mode } });
                     }
-                    prompt(conversationId, sessionId, blocks, syncedAfter);
+                    useProvider(conversationId, sessionId, provider, [=, this]() {
+                        prompt(conversationId, sessionId, blocks, syncedAfter);
+                    });
                 });
         });
+}
+
+void ChatClient::useProvider(const QString &conversationId, const QString &sessionId,
+                             const ChatProvider &provider, const std::function<void()> &then)
+{
+    const auto it = m_sessions.constFind(conversationId);
+    if (provider.accountId.isEmpty() || it == m_sessions.constEnd() ||
+        (it->provider.accountId == provider.accountId &&
+         (provider.model.isEmpty() || it->provider.model == provider.model))) {
+        then();
+        return;
+    }
+
+    /* new sessions start on the default account */
+    QJsonObject params{ { QStringLiteral("sessionId"), sessionId } };
+    QString method;
+    if (it->provider.accountId == provider.accountId) {
+        method = QStringLiteral("gxde-ai-core/session/setModel");
+        params.insert(QStringLiteral("modelId"), provider.model);
+    } else {
+        method = QStringLiteral("gxde-ai-core/session/setProvider");
+        params.insert(QStringLiteral("providerAccountId"), provider.accountId);
+        if (!provider.model.isEmpty()) {
+            params.insert(QStringLiteral("model"), provider.model);
+        }
+    }
+
+    const int token = m_turnToken;
+    AiCore::instance()->call(method, params,
+                             [=, this](const QJsonValue &, const QString &error) {
+                                 if (token != m_turnToken) {
+                                     return;
+                                 }
+                                 if (!error.isEmpty()) {
+                                     m_sessions.remove(conversationId);
+                                     endTurn();
+                                     Q_EMIT failed(AiCore::friendlyError(error));
+                                     return;
+                                 }
+                                 auto session = m_sessions.find(conversationId);
+                                 if (session != m_sessions.end() && session->id == sessionId) {
+                                     session->provider = provider;
+                                 }
+                                 then();
+                             });
 }
 
 void ChatClient::prompt(const QString &conversationId, const QString &sessionId,
