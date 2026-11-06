@@ -310,6 +310,7 @@ private:
 ChatWindow::ChatWindow(QWidget *parent)
     : Dtk::Widget::DMainWindow(parent)
     , m_client(new ChatClient(this))
+    , m_thinkTimer(new QTimer(this))
 {
     setWindowTitle(tr("小埃同学"));
     titlebar()->setTitle(tr("小埃同学"));
@@ -426,7 +427,6 @@ ChatWindow::ChatWindow(QWidget *parent)
     m_waitTimer->setInterval(5000);
     connect(m_waitTimer, &QTimer::timeout, this, &ChatWindow::onTurnWait);
     connect(m_client, &ChatClient::activity, this, &ChatWindow::noteTurnActivity);
-    m_thinkTimer = new QTimer(this);
     m_thinkTimer->setInterval(1000);
     connect(m_thinkTimer, &QTimer::timeout, this, &ChatWindow::showThinking);
     connect(m_client, &ChatClient::thought, this, &ChatWindow::startThinking);
