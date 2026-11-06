@@ -339,12 +339,29 @@ interface org.gxde.Portal
   处理成多尺寸 hicolor 图标。
 - **关于**：版本、许可、仓库、致谢。
 
+> 2026-11：对话后端改为 GXDE AI Core（见 §9.3），下面的 API / 上下文 / MCP 由 AI Core 承担。
+
 ### 9.2 技术
 
 - Qt6 Widgets + DTK2；HTTP 用 `QNetworkAccessManager`（SSE 流式）；SQLite 存对话。
 - MCP 用 `QProcess` + JSON-RPC 2.0（stdio），协议与 DSH 对齐。
 - UI 参考 DSH Web：左侧会话栏、消息流、底部输入框、设置。
 - 后续：skill、DSH 定制发行、让聊天修改自身配置（安装 skill 等）。
+
+### 9.3 GXDE AI Core 后端
+
+- 常驻一个 `gxde-ai-core --acp --skip-trust` 子进程（`src/chat/aicore.*`），stdio 上跑
+  JSON-RPC 2.0（ACP）。工作目录是用户主目录；`--skip-trust` 只对这个进程信任它，
+  否则 AI Core 会禁用 MCP 和自动允许类模式。
+- 账号：`gxde-ai-core/auth/providers/{list,current,save,delete,activate}`，Key 存在 AI Core
+  的密钥环里；设置页（`src/chat/aicoreaccounts.*`）只是前端。
+- 对话（`src/chat/chatclient.*`）：每个对话一个 `session/new`；正常追问只发新消息，
+  对话历史与会话已同步的条数对不上（编辑/重试/取消/切换账号/AI Core 重启）时新建会话，
+  把此前记录（最多 40 条 / 24000 字）连同人设、额外要求放进第一条 prompt。
+- 工具确认：`session/request_permission` → 对话里的确认气泡 + 窗口不在前台时的桌面通知；
+  权限模式走 `session/set_mode`（default / autoEdit / yolo / plan）。
+- 测试：`gxde-ai-see-aicoretest` 在临时 HOME 里启动真实的 gxde-ai-core，对接
+  `tests/api/fake_openai.py`。
 
 ---
 

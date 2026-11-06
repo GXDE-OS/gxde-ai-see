@@ -46,11 +46,16 @@
 
 ### 💬 小埃同学 Chat
 
-- DeepSeek 官方 API 预设 + 自定义 API；首次使用引导开通并填 Key。
+- 后端是 [GXDE AI Core](https://gitee.com/GXDE-OS)（`gxde-ai-core --acp`，ACP 协议）：
+  每个对话对应一个 AI Core 会话，由它负责模型调用、上下文压缩和工具执行。
+- 账号用 AI Core 的供应商账号（DeepSeek、Kimi、通义等预设，或自定义 OpenAI 兼容 /
+  Anthropic / Gemini 端点），API Key 由 AI Core 存在系统密钥环里、与命令行共用；
+  小埃同学的设置页只是这些账号的配置前端。旧版保存在配置文件里的 Key 会自动迁移。
+- 工具调用（执行命令、改文件、MCP 等）在对话里以确认气泡询问，窗口不在前台时发桌面通知；
+  标题栏可切换权限模式：每次确认 / 自动允许编辑 / 全部自动允许 / 只读。
 - 多对话管理、流式输出、Markdown、代码块。
-- 编辑消息、重试、从任意消息 fork。
-- 上下文长度设置 + 手动/自动压缩。
-- MCP（stdio）工具接入：设置里填服务器 JSON，工具自动以 function calling 暴露给模型。
+- 编辑消息、重试、从任意消息 fork：历史和 AI Core 会话对不上时自动重建会话并带上此前记录。
+- MCP（stdio）：设置里填服务器 JSON，新会话启动时交给 AI Core 连接。
 - 独立桌面入口；后续作为 GXDE 各项能力的 AI 入口与 skill 平台。
 
 ---
@@ -109,7 +114,7 @@
 
 ## 🔨 构建
 
-依赖：Qt 6.8、dtk2widget 6、LayerShellQt 6、ICU、Wayland。
+依赖：Qt 6.8、dtk2widget 6、LayerShellQt 6、ICU、Wayland；对话运行时需要 `gxde-ai-core`。
 
 ```bash
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -132,7 +137,7 @@ gxde-ai-see --todo     # 打开待办
 gxde-ai-see --daemon   # 后台常驻（由 gxde-k9 拉起）
 ```
 
-- 首次对话：`--chat` → 左下「设置」→ 填 DeepSeek API Key。
+- 首次对话：`--chat` → 左下「设置」→「GXDE AI Core 账号」里添加账号（选供应商、填 API Key）。
 - 传送门在 GXDE Wayland 合成器上走爆炸平铺（见 [方案 §4](docs/PLAN.md)）；X11（EWMH）与
   treeland 等支持 `wlr-foreign-toplevel-management` 的合成器上走「最小化 + 窗口网格」；都不支持时自动降级。
 - 面板右键菜单：固定位置/大小、恢复默认位置、开机自启与保活、清空、关于。

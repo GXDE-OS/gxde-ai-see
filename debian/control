@@ -34,7 +34,8 @@ Depends: ${shlibs:Depends}, ${misc:Depends},
          qml6-module-qtquick,
          qml6-module-qtquick-layouts,
          qml6-module-qtquick-window
-Recommends: gxde-k9
+Recommends: gxde-k9,
+            gxde-ai-core
 Description: GXDE AI See - 小埃同学
  GXDE 桌面的 AI 助手：传送门、内容工厂、待办与小埃同学对话。
- 支持拖拽暂存、原生 drop 到目标窗口，以及 DeepSeek / 自定义 API 的流式对话。
+ 支持拖拽暂存、原生 drop 到目标窗口，以及基于 GXDE AI Core 的流式对话与工具调用。

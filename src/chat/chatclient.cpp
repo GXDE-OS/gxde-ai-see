@@ -5,298 +5,395 @@
 
 #include <QJsonArray>
 #include <QJsonDocument>
-#include <QJsonObject>
-#include <QNetworkReply>
-#include <QNetworkRequest>
-#include <QUrl>
 
 #include "config.h"
 
 namespace {
 
-bool prepareRequest(const QVector<ChatMessage> &messages, bool stream,
-                    const QJsonArray &tools, const QJsonArray &extraMessages,
-                    QNetworkRequest *request, QByteArray *body, QString *error)
+constexpr char kProviderMethod[] = "hachimi-provider-account";
+
+// Amount of messages that a rebuilt session see.
+constexpr int kReplayMessages = 40;
+constexpr int kReplayChars = 24000;
+
+QString speaker(const ChatMessage &message)
 {
-    const QString apiKey =
-        Config::instance()->get(QStringLiteral("chat/apiKey")).toString().trimmed();
-    if (apiKey.isEmpty()) {
-        *error = QObject::tr("还没有配置 API Key。请先点右上角设置，填入 DeepSeek API Key。");
-        return false;
+    if (message.role == QStringLiteral("user")) {
+        return QObject::tr("用户");
     }
 
-    QString baseUrl = Config::instance()
-                          ->get(QStringLiteral("chat/baseUrl"),
-                                QStringLiteral("https://api.deepseek.com"))
-                          .toString()
-                          .trimmed();
-    while (baseUrl.endsWith(QLatin1Char('/'))) {
-        baseUrl.chop(1);
-    }
-    if (!baseUrl.endsWith(QStringLiteral("/chat/completions"))) {
-        baseUrl += QStringLiteral("/chat/completions");
+    if (message.role == QStringLiteral("assistant")) {
+        return QObject::tr("小埃");
     }
 
-    QJsonArray jsonMessages;
-    for (const ChatMessage &message : messages) {
-        QJsonObject object;
-        object.insert(QStringLiteral("role"), message.role);
-        object.insert(QStringLiteral("content"), message.content);
-        jsonMessages.append(object);
-    }
-
-    QJsonObject payload;
-    payload.insert(QStringLiteral("model"),
-                   Config::instance()
-                       ->get(QStringLiteral("chat/model"), QStringLiteral("deepseek-flash"))
-                       .toString());
-    QJsonArray allMessages = jsonMessages;
-    for (const QJsonValue &extra : extraMessages) {
-        allMessages.append(extra);
-    }
-    payload.insert(QStringLiteral("messages"), allMessages);
-    payload.insert(QStringLiteral("stream"), stream);
-    if (!tools.isEmpty()) {
-        payload.insert(QStringLiteral("tools"), tools);
-        payload.insert(QStringLiteral("tool_choice"), QStringLiteral("auto"));
-    }
-    payload.insert(QStringLiteral("temperature"), 0.7);
-
-    *request = QNetworkRequest{QUrl(baseUrl)};
-    request->setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
-    request->setRawHeader("Authorization", "Bearer " + apiKey.toUtf8());
-    request->setAttribute(QNetworkRequest::RedirectPolicyAttribute,
-                          QNetworkRequest::NoLessSafeRedirectPolicy);
-    *body = QJsonDocument(payload).toJson(QJsonDocument::Compact);
-    return true;
+    return QObject::tr("备注");
 }
 
-QString errorFromBody(const QByteArray &body, const QString &fallback)
+
+QString sessionContext(const QVector<ChatMessage> &earlier)
 {
-    const QJsonDocument document = QJsonDocument::fromJson(body);
-    if (document.isObject()) {
-        const QString detail = document.object()
-                                   .value(QStringLiteral("error"))
-                                   .toObject()
-                                   .value(QStringLiteral("message"))
-                                   .toString();
-        if (!detail.isEmpty()) {
-            return detail;
-        }
+    QString context = QObject::tr(
+        "你是 GXDE 桌面上的助手「小埃同学」，正在通过图形界面的对话窗口与用户交流（不是终端）。"
+        "请使用用户的语言回答，可以使用 Markdown。");
+
+    const QString systemPrompt =
+        Config::instance()->get(QStringLiteral("chat/systemPrompt")).toString().trimmed();
+    if (!systemPrompt.isEmpty()) {
+        context += QStringLiteral("\n\n") + QObject::tr("用户的额外要求：") +
+                   QLatin1Char('\n') + systemPrompt;
     }
-    return fallback;
+
+    QStringList lines;
+    int chars = 0;
+    for (int i = earlier.size() - 1; i >= 0 && lines.size() < kReplayMessages; --i) {
+        const ChatMessage &message = earlier.at(i);
+        const QString content = message.content.trimmed();
+        if (content.isEmpty() || content.startsWith(QStringLiteral("⚠️"))) {
+            continue;
+        }
+
+        const QString line = speaker(message) + QStringLiteral("：") + content;
+        if (chars + line.size() > kReplayChars && !lines.isEmpty()) {
+            break;
+        }
+
+        chars += line.size();
+        lines.prepend(line.left(kReplayChars));
+    }
+    if (!lines.isEmpty()) {
+        context += QStringLiteral("\n\n") +
+                   QObject::tr("以下是这段对话此前的记录（可能已截断），请在此基础上继续：") +
+                   QStringLiteral("\n\n") + lines.join(QStringLiteral("\n\n"));
+    }
+    
+    return context + QStringLiteral("\n\n---\n") + QObject::tr("用户的新消息：") +
+           QLatin1Char('\n');
+}
+
+QJsonObject textBlock(const QString &text)
+{
+    return QJsonObject{ { QStringLiteral("type"), QStringLiteral("text") },
+                        { QStringLiteral("text"), text } };
 }
 
 } // namespace
 
+QStringList ChatClient::modeIds()
+{
+    return { QStringLiteral("default"), QStringLiteral("autoEdit"), QStringLiteral("yolo"),
+             QStringLiteral("plan") };
+}
+
+QString ChatClient::modeLabel(const QString &modeId)
+{
+    if (modeId == QStringLiteral("autoEdit")) {
+        return tr("自动允许编辑");
+    }
+
+    if (modeId == QStringLiteral("yolo")) {
+        return tr("全部自动允许");
+    }
+
+    if (modeId == QStringLiteral("plan")) {
+        return tr("只读");
+    }
+
+    return tr("每次确认");
+}
+
 ChatClient::ChatClient(QObject *parent)
     : QObject(parent)
 {
-    m_manager.setRedirectPolicy(QNetworkRequest::NoLessSafeRedirectPolicy);
+    m_mode = Config::instance()
+                 ->get(QStringLiteral("chat/approvalMode"), QStringLiteral("default"))
+                 .toString();
+    if (!modeIds().contains(m_mode)) {
+        m_mode = QStringLiteral("default");
+    }
+
+    AiCore *core = AiCore::instance();
+    connect(core, &AiCore::sessionUpdate, this, &ChatClient::handleUpdate);
+    connect(core, &AiCore::permissionRequested, this, &ChatClient::handlePermission);
+    connect(core, &AiCore::accountsChanged, this, [this]() { m_sessions.clear(); });
+    connect(core, &AiCore::stopped, this, [this](const QString &reason) {
+        m_sessions.clear();
+        if (busy()) {
+            m_permissions.clear();
+            endTurn();
+            Q_EMIT failed(reason);
+        }
+    });
 }
 
-void ChatClient::setTools(const QJsonArray &tools)
-{
-    m_tools = tools;
-}
-
-void ChatClient::send(const QVector<ChatMessage> &messages, const QJsonArray &extraMessages)
+ChatClient::~ChatClient()
 {
     cancel();
-    m_buffer.clear();
-    m_fullText.clear();
-    m_toolCalls.clear();
-    m_done = false;
-
-    QNetworkRequest request;
-    QByteArray body;
-    QString error;
-    if (!prepareRequest(messages, true, m_tools, extraMessages, &request, &body, &error)) {
-        Q_EMIT failed(error);
-        return;
-    }
-
-    m_reply = m_manager.post(request, body);
-    connect(m_reply, &QNetworkReply::readyRead, this, &ChatClient::handleReadyRead);
-    connect(m_reply, &QNetworkReply::finished, this, &ChatClient::handleFinished);
 }
 
-void ChatClient::sendOnce(const QVector<ChatMessage> &messages)
+void ChatClient::send(const QString &conversationId, const QVector<ChatMessage> &history)
 {
-    if (m_onceReply) {
-        m_onceReply->abort();
-        m_onceReply->deleteLater();
-        m_onceReply = nullptr;
-    }
-
-    QNetworkRequest request;
-    QByteArray body;
-    QString error;
-    if (!prepareRequest(messages, false, QJsonArray(), QJsonArray(), &request, &body, &error)) {
-        Q_EMIT onceFailed(error);
+    cancel();
+    if (history.isEmpty() || history.constLast().role != QStringLiteral("user")) {
+        Q_EMIT failed(tr("没有要发送的消息"));
         return;
     }
+    startTurn(conversationId, history);
+}
 
-    m_onceReply = m_manager.post(request, body);
-    connect(m_onceReply, &QNetworkReply::finished, this, [this]() {
-        if (!m_onceReply) {
+void ChatClient::startTurn(const QString &conversationId, const QVector<ChatMessage> &history)
+{
+    m_turnConversation = conversationId;
+    m_turnSession.clear();
+    const int token = ++m_turnToken;
+
+    const int earlier = history.size() - 1;
+    const QString text = history.constLast().content;
+    const int syncedAfter = history.size() + 1;
+
+    const auto it = m_sessions.constFind(conversationId);
+    if (it != m_sessions.constEnd() && it->synced == earlier) {
+        prompt(conversationId, it->id, QJsonArray{ textBlock(text) }, syncedAfter);
+        return;
+    }
+    m_sessions.remove(conversationId);
+
+    const QJsonArray blocks{ textBlock(sessionContext(history.mid(0, earlier))),
+                             textBlock(text) };
+    AiCore *core = AiCore::instance();
+
+    auto fail = [this, token](const QString &error) {
+        if (token != m_turnToken) {
             return;
         }
-        QNetworkReply *reply = m_onceReply;
-        m_onceReply = nullptr;
+        endTurn();
+        Q_EMIT failed(AiCore::friendlyError(error));
+    };
 
-        if (reply->error() != QNetworkReply::NoError) {
-            Q_EMIT onceFailed(errorFromBody(reply->readAll(), reply->errorString()));
-            reply->deleteLater();
-            return;
-        }
+    core->call(
+        QStringLiteral("authenticate"),
+        { { QStringLiteral("methodId"), QString::fromLatin1(kProviderMethod) } },
+        [=, this](const QJsonValue &, const QString &authError) {
+            if (token != m_turnToken) {
+                return;
+            }
+            if (!authError.isEmpty()) {
+                fail(authError);
+                return;
+            }
+            core->call(
+                QStringLiteral("session/new"),
+                { { QStringLiteral("cwd"), AiCore::workspace() },
+                  { QStringLiteral("mcpServers"), mcpServers() } },
+                [=, this](const QJsonValue &result, const QString &error) {
+                    if (token != m_turnToken) {
+                        return;
+                    }
+                    const QString sessionId =
+                        result.toObject().value(QStringLiteral("sessionId")).toString();
+                    if (!error.isEmpty() || sessionId.isEmpty()) {
+                        fail(error.isEmpty() ? tr("GXDE AI Core 没有创建会话") : error);
+                        return;
+                    }
+                    m_sessions.insert(conversationId, Session{ sessionId, 0 });
+                    const QString current = result.toObject()
+                                                .value(QStringLiteral("modes"))
+                                                .toObject()
+                                                .value(QStringLiteral("currentModeId"))
+                                                .toString();
+                    if (!current.isEmpty() && current != m_mode) {
+                        core->call(QStringLiteral("session/set_mode"),
+                                   { { QStringLiteral("sessionId"), sessionId },
+                                     { QStringLiteral("modeId"), m_mode } });
+                    }
+                    prompt(conversationId, sessionId, blocks, syncedAfter);
+                });
+        });
+}
 
-        const QJsonDocument document = QJsonDocument::fromJson(reply->readAll());
-        const QJsonArray choices =
-            document.object().value(QStringLiteral("choices")).toArray();
-        if (choices.isEmpty()) {
-            Q_EMIT onceFailed(tr("模型没有返回内容"));
-            reply->deleteLater();
-            return;
-        }
-        const QString content = choices.first()
-                                    .toObject()
-                                    .value(QStringLiteral("message"))
-                                    .toObject()
-                                    .value(QStringLiteral("content"))
-                                    .toString();
-        Q_EMIT onceFinished(content);
-        reply->deleteLater();
-    });
+void ChatClient::prompt(const QString &conversationId, const QString &sessionId,
+                        const QJsonArray &blocks, int syncedAfter)
+{
+    const int token = m_turnToken;
+    m_turnSession = sessionId;
+    AiCore::instance()->call(
+        QStringLiteral("session/prompt"),
+        { { QStringLiteral("sessionId"), sessionId }, { QStringLiteral("prompt"), blocks } },
+        [=, this](const QJsonValue &result, const QString &error) {
+            if (token != m_turnToken) {
+                return;
+            }
+            dropPermissions();
+            endTurn();
+            if (!error.isEmpty()) {
+                m_sessions.remove(conversationId);
+                Q_EMIT failed(AiCore::friendlyError(error));
+                return;
+            }
+
+            const QString stopReason =
+                result.toObject().value(QStringLiteral("stopReason")).toString();
+            auto it = m_sessions.find(conversationId);
+            if (it != m_sessions.end() && it->id == sessionId) {
+                if (stopReason == QStringLiteral("cancelled")) {
+                    m_sessions.erase(it);
+                } else {
+                    it->synced = syncedAfter;
+                }
+            }
+
+            Q_EMIT finished(stopReason);
+        });
 }
 
 void ChatClient::cancel()
 {
-    if (m_reply) {
-        QNetworkReply *reply = m_reply;
-        m_reply = nullptr;
-        reply->disconnect(this);
-        reply->abort();
-        reply->deleteLater();
+    if (!busy()) {
+        return;
     }
-    if (m_onceReply) {
-        QNetworkReply *reply = m_onceReply;
-        m_onceReply = nullptr;
-        reply->disconnect(this);
-        reply->abort();
-        reply->deleteLater();
+
+    if (!m_turnSession.isEmpty()) {
+        AiCore::instance()->notify(QStringLiteral("session/cancel"),
+                                   { { QStringLiteral("sessionId"), m_turnSession } });
+    }
+
+    dropPermissions();
+    m_sessions.remove(m_turnConversation);
+    endTurn();
+}
+
+void ChatClient::endTurn()
+{
+    ++m_turnToken;
+    m_turnConversation.clear();
+    m_turnSession.clear();
+}
+
+void ChatClient::forget(const QString &conversationId)
+{
+    if (m_turnConversation == conversationId) {
+        cancel();
+    }
+    m_sessions.remove(conversationId);
+}
+
+void ChatClient::resetSessions()
+{
+    m_sessions.clear();
+}
+
+void ChatClient::setMode(const QString &modeId)
+{
+    if (!modeIds().contains(modeId) || modeId == m_mode) {
+        return;
+    }
+
+    m_mode = modeId;
+    Config::instance()->set(QStringLiteral("chat/approvalMode"), modeId);
+    Config::instance()->sync();
+    for (const Session &session : std::as_const(m_sessions)) {
+        AiCore::instance()->call(QStringLiteral("session/set_mode"),
+                                 { { QStringLiteral("sessionId"), session.id },
+                                   { QStringLiteral("modeId"), modeId } });
     }
 }
 
-void ChatClient::handleReadyRead()
+void ChatClient::answerPermission(const QString &key, const QString &optionId)
 {
-    if (!m_reply) {
+    if (!m_permissions.contains(key)) {
         return;
     }
-    m_buffer.append(m_reply->readAll());
+    const AiCorePermission request = m_permissions.take(key);
+    QString chosen = optionId;
+    if (chosen.isEmpty()) {
+        for (const QJsonObject &option : request.options) {
+            if (option.value(QStringLiteral("kind")).toString() ==
+                QStringLiteral("reject_once")) {
+                chosen = option.value(QStringLiteral("optionId")).toString();
+                break;
+            }
+        }
+    }
+    AiCore::instance()->answerPermission(request.rpcId, chosen);
+}
 
-    int newline;
-    while ((newline = m_buffer.indexOf('\n')) >= 0) {
-        QByteArray line = m_buffer.left(newline);
-        m_buffer.remove(0, newline + 1);
-        if (line.endsWith('\r')) {
-            line.chop(1);
-        }
-        if (!line.startsWith("data:")) {
-            continue;
-        }
-        QByteArray payload = line.mid(5).trimmed();
-        if (payload == "[DONE]") {
-            m_done = true;
-            continue;
-        }
-        handlePayload(payload);
+void ChatClient::dropPermissions()
+{
+    const QHash<QString, AiCorePermission> pending = m_permissions;
+    m_permissions.clear();
+    for (auto it = pending.constBegin(); it != pending.constEnd(); ++it) {
+        AiCore::instance()->answerPermission(it->rpcId, QString());
+        Q_EMIT permissionDropped(it.key());
     }
 }
 
-void ChatClient::handlePayload(const QByteArray &payload)
+void ChatClient::handleUpdate(const QString &sessionId, const QJsonObject &update)
 {
-    const QJsonDocument document = QJsonDocument::fromJson(payload);
-    if (!document.isObject()) {
+    if (!busy() || sessionId != m_turnSession) {
         return;
     }
-    const QJsonObject object = document.object();
+    const QString kind = update.value(QStringLiteral("sessionUpdate")).toString();
+    if (kind != QStringLiteral("available_commands_update")) {
+        Q_EMIT activity();
+    }
+    if (kind == QStringLiteral("agent_message_chunk")) {
+        const QJsonObject content = update.value(QStringLiteral("content")).toObject();
+        if (content.value(QStringLiteral("type")).toString() == QStringLiteral("text")) {
+            const QString text = content.value(QStringLiteral("text")).toString();
+            /* set_mode echoes the new mode into the message stream */
+            if (!text.isEmpty() && !text.startsWith(QStringLiteral("[MODE_UPDATE]"))) {
+                Q_EMIT delta(text);
+            }
+        }
+    } else if (kind == QStringLiteral("tool_call") ||
+               kind == QStringLiteral("tool_call_update")) {
+        Q_EMIT toolCall(update.value(QStringLiteral("toolCallId")).toString(),
+                        update.value(QStringLiteral("title")).toString(),
+                        update.value(QStringLiteral("kind")).toString(),
+                        update.value(QStringLiteral("status")).toString());
+    }
+}
 
-    if (object.contains(QStringLiteral("error"))) {
-        const QJsonObject error = object.value(QStringLiteral("error")).toObject();
-        Q_EMIT failed(error.value(QStringLiteral("message")).toString(tr("请求失败")));
+void ChatClient::handlePermission(const AiCorePermission &request)
+{
+    if (!busy() || request.sessionId != m_turnSession) {
+        AiCore::instance()->answerPermission(request.rpcId, QString());
         return;
     }
+    const QString key = QString::number(m_nextPermission++);
+    m_permissions.insert(key, request);
+    Q_EMIT permissionRequested(key, request);
+}
 
-    const QJsonArray choices = object.value(QStringLiteral("choices")).toArray();
-    if (choices.isEmpty()) {
-        return;
-    }
-    const QJsonObject deltaObject =
-        choices.first().toObject().value(QStringLiteral("delta")).toObject();
-    const QString content = deltaObject.value(QStringLiteral("content")).toString();
-    if (!content.isEmpty()) {
-        m_fullText += content;
-        Q_EMIT delta(content);
-    }
-
-    const QJsonArray toolCalls = deltaObject.value(QStringLiteral("tool_calls")).toArray();
-    for (const QJsonValue &value : toolCalls) {
+QJsonArray ChatClient::mcpServers() const
+{
+    QJsonArray servers;
+    const QString json =
+        Config::instance()->get(QStringLiteral("chat/mcpServers")).toString().trimmed();
+    const QJsonDocument document = QJsonDocument::fromJson(json.toUtf8());
+    for (const QJsonValue &value : document.array()) {
         const QJsonObject object = value.toObject();
-        const int index = object.value(QStringLiteral("index")).toInt();
-        while (m_toolCalls.size() <= index) {
-            m_toolCalls.append(ToolCall{});
+        const QString command = object.value(QStringLiteral("command")).toString();
+        if (command.isEmpty()) {
+            continue;
         }
-        ToolCall &call = m_toolCalls[index];
-        if (object.contains(QStringLiteral("id"))) {
-            call.id = object.value(QStringLiteral("id")).toString();
+        QString name = object.value(QStringLiteral("name")).toString();
+        if (name.isEmpty()) {
+            name = QStringLiteral("mcp%1").arg(servers.size() + 1);
         }
-        const QJsonObject function = object.value(QStringLiteral("function")).toObject();
-        if (function.contains(QStringLiteral("name"))) {
-            call.name += function.value(QStringLiteral("name")).toString();
+        QJsonArray args;
+        for (const QJsonValue &arg : object.value(QStringLiteral("args")).toArray()) {
+            args.append(arg.toString());
         }
-        if (function.contains(QStringLiteral("arguments"))) {
-            call.arguments += function.value(QStringLiteral("arguments")).toString();
+        QJsonArray env;
+        const QJsonObject envObject = object.value(QStringLiteral("env")).toObject();
+        for (auto it = envObject.constBegin(); it != envObject.constEnd(); ++it) {
+            env.append(QJsonObject{ { QStringLiteral("name"), it.key() },
+                                    { QStringLiteral("value"), it.value().toString() } });
         }
+        servers.append(QJsonObject{ { QStringLiteral("name"), name },
+                                    { QStringLiteral("command"), command },
+                                    { QStringLiteral("args"), args },
+                                    { QStringLiteral("env"), env } });
     }
-}
-
-void ChatClient::handleFinished()
-{
-    if (!m_reply) {
-        return;
-    }
-    QNetworkReply *reply = m_reply;
-    m_reply = nullptr;
-
-    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    if (reply->error() != QNetworkReply::NoError &&
-        reply->error() != QNetworkReply::OperationCanceledError) {
-        QString message = errorFromBody(reply->readAll(), reply->errorString());
-        if (status == 401) {
-            message = tr("API Key 无效或已过期");
-        }
-        Q_EMIT failed(message);
-        reply->deleteLater();
-        return;
-    }
-
-    if (!m_buffer.isEmpty()) {
-        QByteArray line = m_buffer.trimmed();
-        if (line.startsWith("data:")) {
-            handlePayload(line.mid(5).trimmed());
-        }
-        m_buffer.clear();
-    }
-
-    if (!m_toolCalls.isEmpty()) {
-        const QVector<ToolCall> calls = m_toolCalls;
-        m_toolCalls.clear();
-        Q_EMIT toolCallsReady(calls);
-        reply->deleteLater();
-        return;
-    }
-
-    Q_EMIT finished(m_fullText);
-    reply->deleteLater();
+    return servers;
 }

@@ -3,6 +3,9 @@
 
 #pragma once
 
+#include <QHash>
+#include <QList>
+#include <QPair>
 #include <QScrollArea>
 #include <QVector>
 
@@ -29,6 +32,16 @@ public:
     void appendNote(const QString &text);
     void clear();
 
+    /**
+     * An inline card asking to approve a tool call.  \a options are
+     * (optionId, button label) pairs; picking one emits permissionAnswered()
+     * and leaves the card showing the decision.  The card survives
+     * setMessages() until removePermission().
+     */
+    void showPermission(const QString &key, const QString &title, const QString &detail,
+                        const QList<QPair<QString, QString>> &options);
+    void removePermission(const QString &key);
+
     /** Rebuild every row after the light/dark theme changed. */
     void refreshTheme();
 
@@ -41,6 +54,7 @@ signals:
     void forkRequested(int index);
     void retryRequested(int index);
     void linkActivated(const QUrl &url);
+    void permissionAnswered(const QString &key, const QString &optionId);
 
 protected:
     void dragEnterEvent(QDragEnterEvent *event) override;
@@ -59,5 +73,6 @@ private:
     QLabel *m_welcomeHint = nullptr;
     QVector<class MessageRow *> m_rows;
     QVector<QWidget *> m_notes;
+    QHash<QString, QWidget *> m_permissions;
     QVector<ChatMessage> m_messages;
 };

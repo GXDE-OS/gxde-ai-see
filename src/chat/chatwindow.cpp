@@ -8,11 +8,14 @@
 #include "chattheme.h"
 
 #include "../ui/aboutdialog.h"
+#include "aicore.h"
+#include "aicoreaccounts.h"
 #include "markdown.h"
-#include "mcpclient.h"
 
 #include <DGuiApplicationHelper>
-#include <QCheckBox>
+#include <QDBusConnection>
+#include <QDBusMessage>
+#include <QGroupBox>
 #include <QClipboard>
 #include <QApplication>
 #include <QComboBox>
@@ -35,6 +38,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QTimer>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -47,17 +51,14 @@
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QScreen>
-#include <QSpinBox>
 #include <QShortcut>
 #include <QTextCursor>
 #include <QTextBrowser>
 #include <QIcon>
-#include <QNetworkAccessManager>
-#include <QNetworkReply>
-#include <QNetworkRequest>
 #include <QUrl>
 #include <QUuid>
 #include <QVBoxLayout>
+#include <QWheelEvent>
 
 DGUI_USE_NAMESPACE
 
@@ -67,6 +68,24 @@ bool mimeOk(const QMimeData *mime)
 {
     return mime && (mime->hasUrls() || mime->hasText() || mime->hasImage());
 }
+
+/** A combo box the wheel only changes once it was clicked: scrolling past the
+ *  approval mode must not switch it to "allow everything". */
+class ClickOnlyComboBox : public QComboBox
+{
+public:
+    using QComboBox::QComboBox;
+
+protected:
+    void wheelEvent(QWheelEvent *event) override
+    {
+        if (hasFocus()) {
+            QComboBox::wheelEvent(event);
+        } else {
+            event->ignore();
+        }
+    }
+};
 
 } // namespace
 
@@ -301,10 +320,10 @@ ChatWindow::ChatWindow(QWidget *parent)
     m_storePath = Config::instance()->dataDir() + QStringLiteral("/chat.json");
 
     setupUi();
-    McpManager::instance()->reload();
     load();
 
-    /* DeepSeek renamed the API models; map the old presets once. */
+    /* DeepSeek renamed the API models; map the old presets before the key
+     * of older versions moves into an AI Core account. */
     const QString storedModel =
         Config::instance()->get(QStringLiteral("chat/model")).toString();
     if (storedModel == QStringLiteral("deepseek-chat")) {
@@ -314,6 +333,15 @@ ChatWindow::ChatWindow(QWidget *parent)
         Config::instance()->set(QStringLiteral("chat/model"), QStringLiteral("deepseek-v4-pro"));
         Config::instance()->sync();
     }
+    AiCoreAccountsPanel::importLegacyKey();
+    refreshAccountLabel();
+    connect(AiCore::instance(), &AiCore::accountsChanged, this,
+            &ChatWindow::refreshAccountLabel);
+    QDBusConnection::sessionBus().connect(
+        QStringLiteral("org.freedesktop.Notifications"),
+        QStringLiteral("/org/freedesktop/Notifications"),
+        QStringLiteral("org.freedesktop.Notifications"), QStringLiteral("ActionInvoked"), this,
+        SLOT(onNotificationAction(uint, QString)));
 
     m_current = m_conversations.isEmpty() ? -1 : qBound(0, m_current, m_conversations.size() - 1);
     updateSidebar();
@@ -333,86 +361,248 @@ ChatWindow::ChatWindow(QWidget *parent)
             m_streamingIndex,
             m_conversations[m_current].messages[m_streamingIndex].content);
     });
-    connect(m_client, &ChatClient::finished, this, [this](const QString &) {
-        m_streamingIndex = -1;
-        m_toolScaffold = QJsonArray();
-        m_toolRounds = 0;
-        if (m_current >= 0) {
+    connect(m_client, &ChatClient::finished, this, [this](const QString &stopReason) {
+        if (m_current >= 0 && m_streamingIndex >= 0 &&
+            m_streamingIndex < m_conversations[m_current].messages.size()) {
+            ChatMessage &message = m_conversations[m_current].messages[m_streamingIndex];
+            QString note;
+            if (stopReason == QStringLiteral("max_tokens")) {
+                note = tr("（回复达到长度上限，已截断）");
+            } else if (stopReason == QStringLiteral("max_turn_requests")) {
+                note = tr("（工具调用轮数达到上限，已停止）");
+            } else if (stopReason == QStringLiteral("refusal")) {
+                note = tr("（模型拒绝回答）");
+            } else if (stopReason == QStringLiteral("cancelled")) {
+                note = tr("（已停止）");
+            }
+            if (!note.isEmpty()) {
+                message.content += (message.content.isEmpty() ? QString() : QStringLiteral("\n\n"))
+                    + note;
+            }
             m_conversations[m_current].updatedAt = QDateTime::currentMSecsSinceEpoch();
         }
-        save();
-        renderConversation();
+        endTurn();
     });
-    connect(m_client, &ChatClient::toolCallsReady, this, [this](const QVector<ToolCall> &calls) {
-        if (m_current < 0 || m_streamingIndex < 0) {
-            return;
-        }
-        if (m_toolRounds >= 5) {
-            appendError(tr("工具调用次数过多，已停止"));
-            m_streamingIndex = -1;
-            return;
-        }
-        ++m_toolRounds;
-
-        QStringList names;
-        for (const ToolCall &call : calls) {
-            names.append(call.name);
-        }
-        ChatMessage &message =
-            m_conversations[m_current].messages[m_streamingIndex];
-        message.content += QStringLiteral("%1🔧 调用工具：%2")
-                               .arg(message.content.isEmpty() ? QString() : QStringLiteral("\n\n"),
-                                    names.join(QStringLiteral(", ")));
-        m_messages->updateMessage(m_streamingIndex, message.content);
-
-        runToolCalls(calls, 0, QJsonArray());
+    connect(m_client, &ChatClient::toolCall, this,
+            [this](const QString &toolCallId, const QString &title, const QString &kind,
+                   const QString &status) {
+                if (m_current < 0 || m_streamingIndex < 0 ||
+                    m_streamingIndex >= m_conversations[m_current].messages.size()) {
+                    return;
+                }
+                ChatMessage &message = m_conversations[m_current].messages[m_streamingIndex];
+                const QString name = title.isEmpty() ? kind : title;
+                QString line;
+                if (!m_turnTools.contains(toolCallId)) {
+                    m_turnTools.insert(toolCallId);
+                    line = tr("🔧 %1").arg(name);
+                } else if (status == QStringLiteral("failed")) {
+                    line = tr("⚠️ 工具未完成：%1").arg(name);
+                }
+                if (line.isEmpty()) {
+                    return;
+                }
+                if (!message.content.isEmpty()) {
+                    message.content += message.content.endsWith(QLatin1Char('\n'))
+                                           ? QStringLiteral("\n")
+                                           : QStringLiteral("\n\n");
+                }
+                message.content += line + QLatin1Char('\n');
+                m_messages->updateMessage(m_streamingIndex, message.content);
+            });
+    connect(m_client, &ChatClient::permissionRequested, this, &ChatWindow::askPermission);
+    /* AI Core retries failed model requests silently: say so */
+    m_waitTimer = new QTimer(this);
+    m_waitTimer->setInterval(5000);
+    connect(m_waitTimer, &QTimer::timeout, this, &ChatWindow::onTurnWait);
+    connect(m_client, &ChatClient::activity, this, &ChatWindow::noteTurnActivity);
+    connect(m_client, &ChatClient::permissionDropped, this, [this](const QString &key) {
+        m_messages->removePermission(key);
+        m_permissionKeys.remove(key);
     });
-    connect(m_client, &ChatClient::onceFinished, this, [this](const QString &summary) {
-        m_compressing = false;
-        if (m_current >= 0) {
-            ChatConversation &conversation = m_conversations[m_current];
-            const int keep = qMax(2, Config::instance()
-                                         ->getInt(QStringLiteral("chat/contextLength"), 40) /
-                                         4);
-            const int keepCount = qMin(keep, conversation.messages.size());
-            const QVector<ChatMessage> kept =
-                conversation.messages.mid(conversation.messages.size() - keepCount);
-            conversation.messages.clear();
-            conversation.messages.append(
-                ChatMessage{ QStringLiteral("system"),
-                             QStringLiteral("【此前对话摘要】\n") + summary });
-            conversation.messages += kept;
-            save();
-            renderConversation();
-        }
-        m_status->hide();
-        if (m_afterCompressSend) {
-            m_afterCompressSend = false;
-            m_skipCompress = true;
-            requestCompletion();
-        }
-    });
-    connect(m_client, &ChatClient::onceFailed, this, [this](const QString &error) {
-        m_compressing = false;
-        m_status->hide();
-        if (m_afterCompressSend) {
-            m_afterCompressSend = false;
-            m_skipCompress = true;
-            requestCompletion();
-        } else {
-            appendError(error);
-        }
-    });
+    connect(m_messages, &ChatMessageList::permissionAnswered, this,
+            [this](const QString &key, const QString &optionId) {
+                m_client->answerPermission(key, optionId);
+            });
     connect(m_client, &ChatClient::failed, this, [this](const QString &error) {
         if (m_current >= 0 && m_streamingIndex >= 0 &&
             m_streamingIndex < m_conversations[m_current].messages.size()) {
-            m_conversations[m_current].messages[m_streamingIndex].content =
-                tr("⚠️ %1").arg(error);
+            ChatMessage &message = m_conversations[m_current].messages[m_streamingIndex];
+            /* keep what already arrived; a bare error starts with the marker
+             * so it is left out when the conversation is replayed */
+            message.content = message.content.trimmed().isEmpty()
+                                  ? tr("⚠️ %1").arg(error)
+                                  : message.content + QStringLiteral("\n\n") +
+                                        tr("⚠️ %1").arg(error);
         }
-        m_streamingIndex = -1;
-        save();
-        renderConversation();
+        endTurn();
     });
+}
+
+void ChatWindow::noteTurnActivity()
+{
+    m_lastActivity.restart();
+    if (m_waitNoteShown) {
+        m_waitNoteShown = false;
+        m_status->hide();
+    }
+}
+
+void ChatWindow::onTurnWait()
+{
+    if (!m_client->busy()) {
+        m_waitTimer->stop();
+        return;
+    }
+    /* waiting for the user, not for the model */
+    if (!m_permissionKeys.isEmpty()) {
+        m_lastActivity.restart();
+        return;
+    }
+    const qint64 seconds = m_lastActivity.elapsed() / 1000;
+    if (seconds < 20) {
+        return;
+    }
+    QString text = tr("还在等待模型回应（%1 秒）…").arg(seconds);
+    if (seconds >= 45) {
+        text += QLatin1Char('\n') +
+                tr("GXDE AI Core 遇到网络或接口错误时会在后台反复重试，可能持续几分钟。"
+                   "请在「设置」里检查当前账号的 API 地址（OpenAI 兼容地址一般以 /v1 结尾）"
+                   "和网络，或在「⋯」菜单里选「停止回复」。");
+    }
+    m_status->setText(text);
+    m_status->show();
+    m_waitNoteShown = true;
+}
+
+void ChatWindow::endTurn()
+{
+    m_waitTimer->stop();
+    if (m_waitNoteShown) {
+        m_waitNoteShown = false;
+        m_status->hide();
+    }
+    m_streamingIndex = -1;
+    m_turnTools.clear();
+    for (const QString &key : std::as_const(m_permissionKeys)) {
+        m_messages->removePermission(key);
+    }
+    m_permissionKeys.clear();
+    save();
+    updateSidebar();
+    renderConversation();
+    updateSendButton();
+}
+
+void ChatWindow::updateSendButton()
+{
+    m_sendButton->setEnabled(!m_input->toPlainText().trimmed().isEmpty() && !m_client->busy());
+}
+
+void ChatWindow::refreshAccountLabel()
+{
+    AiCoreAccountsPanel::describeActive(this, [this](const QString &label) {
+        m_accountLabel = label;
+        updateHeader();
+    });
+}
+
+void ChatWindow::askPermission(const QString &key, const AiCorePermission &request)
+{
+    const QJsonObject call = request.toolCall;
+    QString title = call.value(QStringLiteral("title")).toString().trimmed();
+    if (title.isEmpty()) {
+        title = call.value(QStringLiteral("kind")).toString();
+    }
+
+    QStringList details;
+    for (const QJsonValue &value : call.value(QStringLiteral("content")).toArray()) {
+        const QJsonObject item = value.toObject();
+        const QString type = item.value(QStringLiteral("type")).toString();
+        if (type == QStringLiteral("content")) {
+            const QString text = item.value(QStringLiteral("content"))
+                                     .toObject()
+                                     .value(QStringLiteral("text"))
+                                     .toString()
+                                     .trimmed();
+            if (!text.isEmpty()) {
+                details.append(text);
+            }
+        } else if (type == QStringLiteral("diff")) {
+            details.append(tr("修改文件：%1").arg(item.value(QStringLiteral("path")).toString()));
+        }
+    }
+    for (const QJsonValue &value : call.value(QStringLiteral("locations")).toArray()) {
+        const QString path = value.toObject().value(QStringLiteral("path")).toString();
+        if (!path.isEmpty() && !details.join(QLatin1Char('\n')).contains(path)) {
+            details.append(path);
+        }
+    }
+    QString detail = details.join(QLatin1Char('\n'));
+    if (detail.size() > 600) {
+        detail = detail.left(600) + QStringLiteral("…");
+    }
+
+    /* allow first: the highlighted button is the one most answers pick */
+    QList<QPair<QString, QString>> options;
+    const QStringList order{ QStringLiteral("allow_once"), QStringLiteral("allow_always"),
+                             QStringLiteral("reject_once"), QStringLiteral("reject_always") };
+    for (const QString &kind : order) {
+        for (const QJsonObject &option : request.options) {
+            if (option.value(QStringLiteral("kind")).toString() != kind) {
+                continue;
+            }
+            QString label = option.value(QStringLiteral("name")).toString();
+            if (kind == QStringLiteral("allow_once")) {
+                label = tr("允许");
+            } else if (kind == QStringLiteral("allow_always")) {
+                label = tr("本对话内总是允许");
+            } else if (kind == QStringLiteral("reject_once")) {
+                label = tr("拒绝");
+            } else if (kind == QStringLiteral("reject_always")) {
+                label = tr("总是拒绝");
+            }
+            options.append({ option.value(QStringLiteral("optionId")).toString(), label });
+        }
+    }
+    if (options.isEmpty()) {
+        m_client->answerPermission(key, QString());
+        return;
+    }
+
+    m_permissionKeys.insert(key);
+    m_messages->showPermission(key, title, detail, options);
+
+    if (!isActiveWindow()) {
+        notifyPermission(title);
+    }
+}
+
+void ChatWindow::notifyPermission(const QString &title)
+{
+    QDBusMessage notification = QDBusMessage::createMethodCall(
+        QStringLiteral("org.freedesktop.Notifications"),
+        QStringLiteral("/org/freedesktop/Notifications"),
+        QStringLiteral("org.freedesktop.Notifications"), QStringLiteral("Notify"));
+    notification << QStringLiteral("gxde-ai-see") << m_notificationId
+                 << QStringLiteral("gxde-ai-see") << tr("小埃同学需要你确认")
+                 << tr("小埃想要执行：%1\n请回到对话窗口允许或拒绝。").arg(title)
+                 << QStringList{ QStringLiteral("default"), tr("查看") } << QVariantMap()
+                 << 0;
+    QDBusConnection::sessionBus().callWithCallback(notification, this,
+                                                   SLOT(onNotificationSent(uint)));
+}
+
+void ChatWindow::onNotificationSent(uint id)
+{
+    m_notificationId = id;
+}
+
+void ChatWindow::onNotificationAction(uint id, const QString &action)
+{
+    if (id == m_notificationId && !action.isEmpty()) {
+        activateForAsk();
+    }
 }
 
 void ChatWindow::setupUi()
@@ -534,9 +724,24 @@ void ChatWindow::setupUi()
     m_titleLabel->setFont(titleFont);
     headerLayout->addWidget(m_titleLabel);
 
-    m_modelLabel = new QLabel(QStringLiteral("deepseek-flash"), header);
+    m_modelLabel = new QLabel(header);
+    m_modelLabel->setToolTip(tr("GXDE AI Core 当前账号与模型，可在「设置」里切换"));
     headerLayout->addWidget(m_modelLabel);
     headerLayout->addStretch();
+
+    /* how the agent's tool calls get approved (ACP session mode) */
+    auto *modeLabel = new QLabel(tr("工具权限"), header);
+    headerLayout->addWidget(modeLabel);
+    m_modeBox = new ClickOnlyComboBox(header);
+    m_modeBox->setFocusPolicy(Qt::StrongFocus);
+    m_modeBox->setToolTip(tr("每次确认：执行命令、改文件前在对话里询问\n"
+                             "自动允许编辑：改文件不再询问，执行命令仍会询问\n"
+                             "全部自动允许：不询问，直接执行\n"
+                             "只读：只允许读取类工具"));
+    for (const QString &mode : ChatClient::modeIds()) {
+        m_modeBox->addItem(ChatClient::modeLabel(mode), mode);
+    }
+    headerLayout->addWidget(m_modeBox);
     paneLayout->addWidget(header);
 
     m_messages = new ChatMessageList(pane);
@@ -581,9 +786,10 @@ void ChatWindow::setupUi()
     connect(newButton, &QPushButton::clicked, this, &ChatWindow::newConversation);
     connect(settingsButton, &QPushButton::clicked, this, &ChatWindow::openSettings);
     connect(m_sendButton, &QPushButton::clicked, this, &ChatWindow::sendMessage);
-    connect(m_input, &QPlainTextEdit::textChanged, this, [this]() {
-        m_sendButton->setEnabled(!m_input->toPlainText().trimmed().isEmpty() &&
-                                 !m_client->busy());
+    connect(m_input, &QPlainTextEdit::textChanged, this, &ChatWindow::updateSendButton);
+    m_modeBox->setCurrentIndex(qMax(0, m_modeBox->findData(m_client->mode())));
+    connect(m_modeBox, &QComboBox::activated, this, [this]() {
+        m_client->setMode(m_modeBox->currentData().toString());
     });
     m_sendButton->setEnabled(false);
 
@@ -612,13 +818,21 @@ void ChatWindow::setupUi()
     });
 
     auto *menu = new QMenu(menuButton);
-    menu->addAction(tr("压缩上下文"), this, [this]() { beginCompression(false); });
+    menu->addAction(tr("停止回复"), this, [this]() {
+        if (m_client->busy()) {
+            m_client->cancel();
+            endTurn();
+        }
+    });
     menu->addAction(tr("重试上一条"), this, &ChatWindow::retryLast);
-    menu->addAction(tr("重新加载 MCP"), this, [this]() {
-        McpManager::instance()->reload();
-        const QStringList status = McpManager::instance()->statusLines();
-        m_status->setText(status.isEmpty() ? tr("没有配置 MCP 服务器")
-                                           : status.join(QStringLiteral(" · ")));
+    menu->addAction(tr("重启 GXDE AI Core"), this, [this]() {
+        if (m_client->busy()) {
+            m_client->cancel();
+            endTurn();
+        }
+        AiCore::instance()->stop();
+        refreshAccountLabel(); // starts it again
+        m_status->setText(tr("GXDE AI Core 已重启，MCP 服务器会在下一条消息时重新连接"));
         m_status->show();
     });
     menu->addSeparator();
@@ -861,6 +1075,7 @@ void ChatWindow::deleteConversations(const QList<int> &rows)
     std::sort(sorted.begin(), sorted.end(), std::greater<int>());
     for (int row : sorted) {
         if (row >= 0 && row < m_conversations.size()) {
+            m_client->forget(m_conversations.at(row).id);
             m_conversations.removeAt(row);
         }
     }
@@ -929,15 +1144,13 @@ void ChatWindow::updateHeader()
 {
     const bool valid = m_current >= 0 && m_current < m_conversations.size();
     m_titleLabel->setText(valid ? m_conversations.at(m_current).title : tr("小埃同学"));
-    m_modelLabel->setText(Config::instance()
-                              ->get(QStringLiteral("chat/model"),
-                                    QStringLiteral("deepseek-flash"))
-                              .toString());
+    m_modelLabel->setText(m_accountLabel.isEmpty() ? tr("未配置 AI Core 账号")
+                                                   : m_accountLabel);
 }
 
 void ChatWindow::sendMessage()
 {
-    if (m_client->busy() || m_compressing) {
+    if (m_client->busy()) {
         return;
     }
     const QString text = m_input->toPlainText().trimmed();
@@ -954,10 +1167,6 @@ void ChatWindow::sendMessage()
     }
     conversation.messages.append(ChatMessage{ QStringLiteral("user"), text });
     conversation.updatedAt = QDateTime::currentMSecsSinceEpoch();
-    m_skipCompress = false;
-    m_toolScaffold = QJsonArray();
-    m_toolRounds = 0;
-
     m_input->clear();
     m_status->hide();
     updateSidebar();
@@ -970,185 +1179,24 @@ void ChatWindow::requestCompletion()
         return;
     }
 
-    if (needsCompression()) {
-        beginCompression(true);
-        return;
-    }
-
     ChatConversation &conversation = m_conversations[m_current];
+    const QVector<ChatMessage> history = conversation.messages;
     conversation.messages.append(ChatMessage{ QStringLiteral("assistant"), QString() });
     m_streamingIndex = conversation.messages.size() - 1;
-    m_sendButton->setEnabled(false);
+    m_turnTools.clear();
+    m_status->hide();
     renderConversation();
-    sendPayload();
-}
-
-void ChatWindow::sendPayload()
-{
-    if (m_current < 0) {
-        return;
-    }
-    const ChatConversation &conversation = m_conversations[m_current];
-
-    QVector<ChatMessage> payload;
-    const QString systemPrompt =
-        Config::instance()->get(QStringLiteral("chat/systemPrompt")).toString().trimmed();
-    if (!systemPrompt.isEmpty()) {
-        payload.append(ChatMessage{ QStringLiteral("system"), systemPrompt });
-    }
-
-    const int keep = Config::instance()->getInt(QStringLiteral("chat/contextLength"), 40);
-    int start = 0;
-    if (keep > 0 && conversation.messages.size() > keep) {
-        start = conversation.messages.size() - keep;
-    }
-    for (int i = start; i < conversation.messages.size() - 1; ++i) {
-        payload.append(conversation.messages.at(i));
-    }
-
-    if (m_toolRounds >= 5) {
-        m_client->setTools(QJsonArray());
-    } else {
-        m_client->setTools(McpManager::instance()->toolDefinitions());
-    }
-    m_client->send(payload, m_toolScaffold);
-}
-
-void ChatWindow::runToolCalls(const QVector<ToolCall> &calls, int index,
-                              const QJsonArray &results)
-{
-    if (index >= calls.size()) {
-        QJsonObject assistant;
-        assistant.insert(QStringLiteral("role"), QStringLiteral("assistant"));
-        assistant.insert(QStringLiteral("content"), QJsonValue::Null);
-        QJsonArray toolCalls;
-        for (const ToolCall &call : calls) {
-            QJsonObject function;
-            function.insert(QStringLiteral("name"), call.name);
-            function.insert(QStringLiteral("arguments"), call.arguments);
-            toolCalls.append(QJsonObject{ { QStringLiteral("id"), call.id },
-                                          { QStringLiteral("type"), QStringLiteral("function") },
-                                          { QStringLiteral("function"), function } });
-        }
-        assistant.insert(QStringLiteral("tool_calls"), toolCalls);
-        m_toolScaffold.append(assistant);
-        for (const QJsonValue &result : results) {
-            m_toolScaffold.append(result);
-        }
-        sendPayload();
-        return;
-    }
-
-    const ToolCall call = calls.at(index);
-    QJsonObject arguments;
-    const QJsonDocument document = QJsonDocument::fromJson(call.arguments.toUtf8());
-    if (document.isObject()) {
-        arguments = document.object();
-    }
-
-    McpManager::instance()->callTool(
-        call.name, arguments,
-        [this, calls, index, results](const QJsonObject &response) {
-            QString text;
-            const QJsonArray content = response.value(QStringLiteral("content")).toArray();
-            for (const QJsonValue &value : content) {
-                const QJsonObject object = value.toObject();
-                if (object.value(QStringLiteral("type")).toString() ==
-                    QStringLiteral("text")) {
-                    text += object.value(QStringLiteral("text")).toString();
-                    text += QLatin1Char('\n');
-                }
-            }
-            if (text.isEmpty()) {
-                text = response.contains(QStringLiteral("error"))
-                           ? response.value(QStringLiteral("error")).toString()
-                           : QString::fromUtf8(
-                                 QJsonDocument(response).toJson(QJsonDocument::Compact));
-            }
-
-            QJsonArray next = results;
-            next.append(QJsonObject{ { QStringLiteral("role"), QStringLiteral("tool") },
-                                     { QStringLiteral("tool_call_id"), calls.at(index).id },
-                                     { QStringLiteral("content"), text } });
-            runToolCalls(calls, index + 1, next);
-        });
-}
-
-bool ChatWindow::needsCompression() const
-{
-    if (m_current < 0 || m_skipCompress) {
-        return false;
-    }
-    if (!Config::instance()->getBool(QStringLiteral("chat/autoCompress"), true)) {
-        return false;
-    }
-    const QVector<ChatMessage> &messages = m_conversations.at(m_current).messages;
-
-    const int keep = Config::instance()->getInt(QStringLiteral("chat/contextLength"), 40);
-    if (messages.size() > keep + 4) {
-        return true;
-    }
-
-    /* also honour a token budget (128k / 1024k); a rough estimate is enough */
-    const qint64 tokenLimit =
-        Config::instance()->getInt(QStringLiteral("chat/contextTokens"), 128000);
-    if (tokenLimit <= 0) {
-        return false;
-    }
-    qint64 tokens = 0;
-    for (const ChatMessage &message : messages) {
-        for (const QChar &ch : message.content) {
-            tokens += ch.unicode() < 128 ? 1 : 2;
-        }
-    }
-    return tokens / 4 > tokenLimit;
-}
-
-void ChatWindow::beginCompression(bool thenSend)
-{
-    if (m_current < 0 || m_compressing) {
-        return;
-    }
-    ChatConversation &conversation = m_conversations[m_current];
-    const int keep = qMax(2, Config::instance()
-                                  ->getInt(QStringLiteral("chat/contextLength"), 40) /
-                                  4);
-    if (conversation.messages.size() <= keep + 2) {
-        if (thenSend) {
-            m_skipCompress = true;
-            requestCompletion();
-        }
-        return;
-    }
-
-    const QVector<ChatMessage> older =
-        conversation.messages.mid(0, conversation.messages.size() - keep);
-    QString transcript;
-    for (const ChatMessage &message : older) {
-        transcript += (message.role == QStringLiteral("user") ? QStringLiteral("用户：")
-                                                              : QStringLiteral("助手："));
-        transcript += message.content;
-        transcript += QLatin1Char('\n');
-    }
-    transcript = transcript.left(20000);
-
-    QVector<ChatMessage> request;
-    request.append(ChatMessage{
-        QStringLiteral("system"),
-        QStringLiteral("你是一个对话摘要助手。请用中文把下面的对话压缩成要点，保留事实、结论、"
-                       "待办和用户偏好，不要编造。") });
-    request.append(ChatMessage{ QStringLiteral("user"), transcript });
-
-    m_compressing = true;
-    m_afterCompressSend = thenSend;
-    m_status->setText(tr("正在压缩上下文…"));
-    m_status->show();
-    m_client->sendOnce(request);
+    /* GXDE AI Core keeps the session's history and compresses it itself */
+    m_waitNoteShown = false;
+    m_lastActivity.start();
+    m_waitTimer->start();
+    m_client->send(conversation.id, history);
+    updateSendButton();
 }
 
 void ChatWindow::editMessage(int index)
 {
-    if (m_client->busy() || m_compressing || m_current < 0) {
+    if (m_client->busy() || m_current < 0) {
         return;
     }
     ChatConversation &conversation = m_conversations[m_current];
@@ -1188,7 +1236,7 @@ void ChatWindow::editMessage(int index)
 
 void ChatWindow::retryFrom(int index)
 {
-    if (m_client->busy() || m_compressing || m_current < 0) {
+    if (m_client->busy() || m_current < 0) {
         return;
     }
     ChatConversation &conversation = m_conversations[m_current];
@@ -1209,7 +1257,7 @@ void ChatWindow::retryFrom(int index)
 
 void ChatWindow::retryLast()
 {
-    if (m_client->busy() || m_compressing || m_current < 0) {
+    if (m_client->busy() || m_current < 0) {
         return;
     }
     ChatConversation &conversation = m_conversations[m_current];
@@ -1289,112 +1337,17 @@ void ChatWindow::openSettings()
 {
     QDialog dialog(this);
     dialog.setWindowTitle(tr("小埃同学设置"));
-    dialog.setMinimumWidth(460);
+    dialog.setMinimumWidth(500);
 
     auto *layout = new QVBoxLayout(&dialog);
+
+    /* accounts, keys and models belong to GXDE AI Core */
+    auto *accountsGroup = new QGroupBox(tr("GXDE AI Core 账号"), &dialog);
+    auto *accountsLayout = new QVBoxLayout(accountsGroup);
+    accountsLayout->addWidget(new AiCoreAccountsPanel(accountsGroup));
+    layout->addWidget(accountsGroup);
+
     auto *form = new QFormLayout;
-
-    auto *keyEdit = new QLineEdit(Config::instance()
-                                      ->get(QStringLiteral("chat/apiKey"))
-                                      .toString(),
-                                  &dialog);
-    keyEdit->setEchoMode(QLineEdit::Password);
-    keyEdit->setPlaceholderText(QStringLiteral("sk-…"));
-    form->addRow(tr("DeepSeek API Key"), keyEdit);
-
-    auto *baseEdit = new QLineEdit(Config::instance()
-                                       ->get(QStringLiteral("chat/baseUrl"),
-                                             QStringLiteral("https://api.deepseek.com"))
-                                       .toString(),
-                                   &dialog);
-    form->addRow(tr("API 地址"), baseEdit);
-
-    auto *modelBox = new QComboBox(&dialog);
-    modelBox->setEditable(true);
-    modelBox->addItems({ QStringLiteral("deepseek-flash"),
-                         QStringLiteral("deepseek-reasoner") });
-    modelBox->setCurrentText(Config::instance()
-                                 ->get(QStringLiteral("chat/model"),
-                                       QStringLiteral("deepseek-flash"))
-                                 .toString());
-    auto *modelRow = new QHBoxLayout;
-    modelRow->setSpacing(6);
-    modelRow->addWidget(modelBox, 1);
-    auto *fetchModels = new QPushButton(tr("获取模型列表"), &dialog);
-    modelRow->addWidget(fetchModels);
-    form->addRow(tr("模型"), modelRow);
-
-    connect(fetchModels, &QPushButton::clicked, &dialog, [=, &dialog]() {
-        QString base = baseEdit->text().trimmed();
-        while (base.endsWith(QLatin1Char('/'))) {
-            base.chop(1);
-        }
-        if (base.endsWith(QStringLiteral("/chat/completions"))) {
-            base.chop(int(qstrlen("/chat/completions")));
-        }
-        QNetworkRequest request{QUrl(base + QStringLiteral("/models"))};
-        request.setRawHeader("Authorization",
-                             "Bearer " + keyEdit->text().trimmed().toUtf8());
-        auto *manager = new QNetworkAccessManager(&dialog);
-        QNetworkReply *reply = manager->get(request);
-        fetchModels->setEnabled(false);
-        connect(reply, &QNetworkReply::finished, &dialog, [=]() {
-            fetchModels->setEnabled(true);
-            const QByteArray body = reply->readAll();
-            const QJsonDocument document = QJsonDocument::fromJson(body);
-            const QJsonArray models =
-                document.object().value(QStringLiteral("data")).toArray();
-            if (reply->error() != QNetworkReply::NoError || models.isEmpty()) {
-                fetchModels->setText(tr("获取失败"));
-                fetchModels->setToolTip(QString::fromUtf8(body).left(200));
-                reply->deleteLater();
-                return;
-            }
-            const QString current = modelBox->currentText();
-            modelBox->clear();
-            for (const QJsonValue &value : models) {
-                const QJsonObject object = value.toObject();
-                const QString id = object.value(QStringLiteral("id")).toString();
-                if (id.isEmpty()) {
-                    continue;
-                }
-                modelBox->addItem(id);
-                const QString name = object.value(QStringLiteral("name")).toString();
-                if (!name.isEmpty()) {
-                    modelBox->setItemData(modelBox->count() - 1, name, Qt::ToolTipRole);
-                }
-            }
-            const int index = modelBox->findText(current);
-            if (index >= 0) {
-                modelBox->setCurrentIndex(index);
-            }
-            fetchModels->setText(tr("已更新"));
-            reply->deleteLater();
-        });
-    });
-
-    auto *contextSpin = new QSpinBox(&dialog);
-    contextSpin->setRange(4, 200);
-    contextSpin->setValue(
-        Config::instance()->getInt(QStringLiteral("chat/contextLength"), 40));
-    form->addRow(tr("上下文条数"), contextSpin);
-
-    auto *tokenBox = new QComboBox(&dialog);
-    tokenBox->addItem(tr("128k"), 128000);
-    tokenBox->addItem(tr("1024k"), 1024000);
-    const int storedTokens =
-        Config::instance()->getInt(QStringLiteral("chat/contextTokens"), 128000);
-    const int tokenIndex = tokenBox->findData(storedTokens);
-    if (tokenIndex >= 0) {
-        tokenBox->setCurrentIndex(tokenIndex);
-    }
-    form->addRow(tr("上下文长度"), tokenBox);
-
-    auto *autoCompressBox = new QCheckBox(tr("超出后自动压缩旧消息"), &dialog);
-    autoCompressBox->setChecked(
-        Config::instance()->getBool(QStringLiteral("chat/autoCompress"), true));
-    form->addRow(QString(), autoCompressBox);
-
     auto *mcpEdit = new QPlainTextEdit(&dialog);
     mcpEdit->setFixedHeight(90);
     mcpEdit->setPlaceholderText(
@@ -1410,16 +1363,14 @@ void ChatWindow::openSettings()
     systemEdit->setPlainText(Config::instance()
                                  ->get(QStringLiteral("chat/systemPrompt"))
                                  .toString());
-    form->addRow(tr("系统提示"), systemEdit);
-
+    form->addRow(tr("额外要求"), systemEdit);
     layout->addLayout(form);
 
     auto *hint = new QLabel(
-        tr("还没有账号？前往 <a href='https://platform.deepseek.com'>platform.deepseek.com</a> "
-           "开通并创建 API Key。Key 只保存在本机配置文件中。"),
+        tr("对话由 GXDE AI Core 处理：它保存账号与 API Key、管理上下文压缩，并运行工具和上面的 "
+           "MCP 服务器。修改 MCP 或额外要求后，从下一条消息起生效。"),
         &dialog);
     hint->setWordWrap(true);
-    hint->setOpenExternalLinks(true);
     hint->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;")
                             .arg(ChatTheme::css(ChatTheme::palette().textSecondary)));
     layout->addWidget(hint);
@@ -1430,30 +1381,31 @@ void ChatWindow::openSettings()
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     layout->addWidget(buttons);
 
-    if (dialog.exec() == QDialog::Accepted) {
-        Config::instance()->set(QStringLiteral("chat/apiKey"), keyEdit->text().trimmed());
-        Config::instance()->set(QStringLiteral("chat/baseUrl"), baseEdit->text().trimmed());
-        Config::instance()->set(QStringLiteral("chat/model"), modelBox->currentText());
-        Config::instance()->set(QStringLiteral("chat/systemPrompt"),
-                                systemEdit->toPlainText());
-        Config::instance()->set(QStringLiteral("chat/contextLength"), contextSpin->value());
-        Config::instance()->set(QStringLiteral("chat/autoCompress"),
-                                autoCompressBox->isChecked());
-        Config::instance()->set(QStringLiteral("chat/contextTokens"),
-                                tokenBox->currentData().toInt());
-        const QJsonDocument mcpDocument =
-            QJsonDocument::fromJson(mcpEdit->toPlainText().toUtf8());
-        if (mcpDocument.isArray() || mcpEdit->toPlainText().trimmed().isEmpty()) {
-            Config::instance()->set(QStringLiteral("chat/mcpServers"),
-                                    mcpEdit->toPlainText().trimmed());
-            McpManager::instance()->reload();
-        } else {
-            m_status->setText(tr("MCP 配置不是合法的 JSON 数组，已忽略"));
-            m_status->show();
-        }
-        Config::instance()->sync();
-        renderConversation();
+    const int result = dialog.exec();
+    refreshAccountLabel();
+    if (result != QDialog::Accepted) {
+        return;
     }
+
+    const QString oldMcp = Config::instance()->get(QStringLiteral("chat/mcpServers")).toString();
+    const QString oldSystem =
+        Config::instance()->get(QStringLiteral("chat/systemPrompt")).toString();
+    Config::instance()->set(QStringLiteral("chat/systemPrompt"), systemEdit->toPlainText());
+    const QString mcp = mcpEdit->toPlainText().trimmed();
+    if (mcp.isEmpty() || QJsonDocument::fromJson(mcp.toUtf8()).isArray()) {
+        Config::instance()->set(QStringLiteral("chat/mcpServers"), mcp);
+    } else {
+        m_status->setText(tr("MCP 配置不是合法的 JSON 数组，已忽略"));
+        m_status->show();
+    }
+    Config::instance()->sync();
+
+    /* sessions get MCP servers and instructions when they start */
+    if (Config::instance()->get(QStringLiteral("chat/mcpServers")).toString() != oldMcp ||
+        systemEdit->toPlainText() != oldSystem) {
+        m_client->resetSessions();
+    }
+    renderConversation();
 }
 
 void ChatWindow::handleDroppedMime(const QMimeData *mime)

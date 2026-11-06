@@ -3,11 +3,14 @@
 
 #pragma once
 
-#include <QJsonArray>
-#include <QNetworkAccessManager>
+#include <QHash>
+#include <QJsonObject>
+#include <QList>
 #include <QObject>
 #include <QString>
 #include <QVector>
+
+#include "aicore.h"
 
 struct ChatMessage
 {
@@ -15,51 +18,90 @@ struct ChatMessage
     QString content;
 };
 
-struct ToolCall
-{
-    QString id;
-    QString name;
-    QString arguments;
-};
-
 /**
- * Minimal client for the DeepSeek (OpenAI compatible) chat API.
+ * Runs the chat turns of the conversations on GXDE AI Core.
  *
- * \a send streams (SSE), \a sendOnce performs a non streaming request used for
- * context compression and other housekeeping calls.
+ * Every conversation gets its own AI Core session, which keeps the history,
+ * compresses it and runs the tools.  The conversation list stays the source
+ * of truth: when it no longer matches what the session saw (a message was
+ * edited, an answer retried, the agent restarted …) the next turn starts a
+ * fresh session and hands it the earlier messages as context.
  */
 class ChatClient : public QObject
 {
     Q_OBJECT
 
 public:
-    explicit ChatClient(QObject *parent = nullptr);
+    /** ACP session modes, in the order the UI offers them. */
+    static QStringList modeIds();
+    static QString modeLabel(const QString &modeId);
 
-    bool busy() const { return m_reply != nullptr; }
-    void setTools(const QJsonArray &tools);
-    void send(const QVector<ChatMessage> &messages, const QJsonArray &extraMessages = QJsonArray());
-    void sendOnce(const QVector<ChatMessage> &messages);
+    explicit ChatClient(QObject *parent = nullptr);
+    ~ChatClient() override;
+
+    bool busy() const { return !m_turnConversation.isEmpty(); }
+
+    /**
+     * Answer the last message of \a history, which must be the user's.
+     * \a conversationId ties the turn to its AI Core session.
+     */
+    void send(const QString &conversationId, const QVector<ChatMessage> &history);
     void cancel();
+
+    /** Drop the session of a conversation that was deleted. */
+    void forget(const QString &conversationId);
+    /** Start every conversation on a fresh session next time (settings changed). */
+    void resetSessions();
+
+    QString mode() const { return m_mode; }
+    /** Applies to the running sessions and every new one. */
+    void setMode(const QString &modeId);
+
+    /** Answer a pending permission request; empty \a optionId rejects. */
+    void answerPermission(const QString &key, const QString &optionId);
 
 signals:
     void delta(const QString &text);
-    void finished(const QString &text);
+    /** A tool started, progressed or ended (\a status: pending, in_progress, completed, failed). */
+    void toolCall(const QString &toolCallId, const QString &title, const QString &kind,
+                  const QString &status);
+    /** \a key identifies the request for answerPermission(). */
+    void permissionRequested(const QString &key, const AiCorePermission &request);
+    /** The request disappeared without an answer from here (cancelled turn). */
+    void permissionDropped(const QString &key);
+    void finished(const QString &stopReason);
     void failed(const QString &error);
-    void onceFinished(const QString &text);
-    void onceFailed(const QString &error);
-    void toolCallsReady(const QVector<ToolCall> &calls);
+    /**
+     * The running turn's session reported something (text, thoughts, tools,
+     * usage).  AI Core retries failed model requests for minutes without a
+     * word, so a long silence is worth telling the user about.
+     */
+    void activity();
 
 private:
-    void handleReadyRead();
-    void handleFinished();
-    void handlePayload(const QByteArray &payload);
+    struct Session
+    {
+        QString id;
+        /* conversation messages the session has seen */
+        int synced = 0;
+    };
 
-    QNetworkAccessManager m_manager;
-    class QNetworkReply *m_reply = nullptr;
-    class QNetworkReply *m_onceReply = nullptr;
-    QByteArray m_buffer;
-    QJsonArray m_tools;
-    QVector<ToolCall> m_toolCalls;
-    QString m_fullText;
-    bool m_done = false;
+    void startTurn(const QString &conversationId, const QVector<ChatMessage> &history);
+    void prompt(const QString &conversationId, const QString &sessionId,
+                const QJsonArray &blocks, int syncedAfter);
+    void endTurn();
+    void dropPermissions();
+    void handleUpdate(const QString &sessionId, const QJsonObject &update);
+    void handlePermission(const AiCorePermission &request);
+    QJsonArray mcpServers() const;
+
+    QString m_mode;
+    QHash<QString, Session> m_sessions; // by conversation id
+
+    /* the running turn */
+    QString m_turnConversation;
+    QString m_turnSession;
+    int m_turnToken = 0;
+    QHash<QString, AiCorePermission> m_permissions; // by key
+    int m_nextPermission = 1;
 };

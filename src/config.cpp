@@ -63,6 +63,13 @@ void Config::set(const QString &key, const QVariant &value)
     m_settings->setValue(key, value);
 }
 
+void Config::remove(const QString &key)
+{
+    if (m_settings) {
+        m_settings->remove(key);
+    }
+}
+
 void Config::sync()
 {
     if (m_settings) {

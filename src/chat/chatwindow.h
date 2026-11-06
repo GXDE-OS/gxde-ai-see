@@ -3,13 +3,17 @@
 
 #pragma once
 
-#include <QJsonArray>
+#include <QElapsedTimer>
+#include <QSet>
 #include <QVector>
 #include <DMainWindow>
 #include <QWidget>
 
 #include "chatclient.h"
 
+class QTimer;
+
+class QComboBox;
 class QLabel;
 class QListWidget;
 class QPlainTextEdit;
@@ -54,6 +58,10 @@ public:
 protected:
     void showEvent(QShowEvent *event) override;
 
+private slots:
+    void onNotificationSent(uint id);
+    void onNotificationAction(uint id, const QString &action);
+
 private:
     void setupUi();
     void applyTheme();
@@ -69,16 +77,19 @@ private:
     void renameConversation(int row);
     void sendMessage();
     void requestCompletion();
-    void runToolCalls(const QVector<ToolCall> &calls, int index, const QJsonArray &results);
-    void sendPayload();
+    void endTurn();
+    void noteTurnActivity();
+    void onTurnWait();
+    void updateSendButton();
+    void refreshAccountLabel();
+    void askPermission(const QString &key, const AiCorePermission &request);
+    void notifyPermission(const QString &title);
     void editMessage(int index);
     void retryLast();
     void retryFrom(int index);
     void forkFrom(int index);
-    void beginCompression(bool thenSend);
     void handleAnchor(const QUrl &url);
     void showAbout();
-    bool needsCompression() const;
     void openSettings();
     void appendError(const QString &message);
     int currentIndex() const { return m_current; }
@@ -87,6 +98,7 @@ private:
     ChatMessageList *m_messages = nullptr;
     QLabel *m_titleLabel = nullptr;
     QLabel *m_modelLabel = nullptr;
+    QComboBox *m_modeBox = nullptr;
     QPlainTextEdit *m_input = nullptr;
     QPushButton *m_sendButton = nullptr;
     QLabel *m_status = nullptr;
@@ -107,10 +119,16 @@ private:
     QVector<ChatConversation> m_conversations;
     int m_current = -1;
     int m_streamingIndex = -1;
-    bool m_compressing = false;
-    bool m_afterCompressSend = false;
-    bool m_skipCompress = false;
-    QJsonArray m_toolScaffold;
-    int m_toolRounds = 0;
+    /* tool calls already shown in the streaming answer */
+    QSet<QString> m_turnTools;
+    /* confirmation cards of the running turn */
+    QSet<QString> m_permissionKeys;
+    /* "account · model" of the active AI Core account */
+    QString m_accountLabel;
+    uint m_notificationId = 0;
+    /* silence watch of the running turn, see onTurnWait() */
+    QTimer *m_waitTimer = nullptr;
+    QElapsedTimer m_lastActivity;
+    bool m_waitNoteShown = false;
     QString m_storePath;
 };

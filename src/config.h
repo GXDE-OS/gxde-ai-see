@@ -26,6 +26,7 @@ public:
     bool getBool(const QString &key, bool fallback = false) const;
     int getInt(const QString &key, int fallback = 0) const;
     void set(const QString &key, const QVariant &value);
+    void remove(const QString &key);
     void sync();
 
     QString dataDir() const;

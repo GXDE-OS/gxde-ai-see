@@ -41,10 +41,11 @@ set(GXDE_AI_SEE_SOURCES
     src/actions/texttools.cpp
     src/todo/todomodel.cpp
     src/todo/todowindow.cpp
+    src/chat/aicore.cpp
+    src/chat/aicoreaccounts.cpp
     src/chat/chatclient.cpp
     src/chat/chatwindow.cpp
     src/chat/chattheme.cpp
-    src/chat/mcpclient.cpp
     src/chat/markdown.cpp
     src/chat/chatview.cpp
     src/ui/mimedroparea.cpp
@@ -151,24 +152,17 @@ target_include_directories(gxde-ai-see-selftest PRIVATE src ${ICU_INCLUDE_DIRS})
 target_link_libraries(gxde-ai-see-selftest PRIVATE
     Qt6::Core Qt6::Gui Qt6::Widgets ${ICU_LIBRARIES})
 
-add_executable(gxde-ai-see-chattest
-    tests/chattest.cpp
+add_executable(gxde-ai-see-aicoretest
+    tests/aicoretest.cpp
+    src/chat/aicore.cpp
     src/chat/chatclient.cpp
-    src/chat/mcpclient.cpp
     src/config.cpp
 )
-target_include_directories(gxde-ai-see-chattest PRIVATE src)
-target_link_libraries(gxde-ai-see-chattest PRIVATE Qt6::Core Qt6::Network)
-target_compile_definitions(gxde-ai-see-chattest PRIVATE
-    TESTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests")
 
-add_executable(gxde-ai-see-mcptest
-    tests/mcptest.cpp
-    src/chat/mcpclient.cpp
-    src/config.cpp
-)
-target_include_directories(gxde-ai-see-mcptest PRIVATE src)
-target_link_libraries(gxde-ai-see-mcptest PRIVATE Qt6::Core)
+target_include_directories(gxde-ai-see-aicoretest PRIVATE src src/chat)
+target_link_libraries(gxde-ai-see-aicoretest PRIVATE Qt6::Core)
+target_compile_definitions(gxde-ai-see-aicoretest PRIVATE
+    TESTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests")
 
 add_executable(gxde-ai-see-themetest
     tests/themetest.cpp
