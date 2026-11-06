@@ -16,6 +16,7 @@ DWIDGET_USE_NAMESPACE
 
 int main(int argc, char *argv[])
 {
+    QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
     DApplication app(argc, argv);
     app.setOrganizationName(QStringLiteral("GXDE"));
     app.setApplicationName(QStringLiteral("gxde-ai-see"));

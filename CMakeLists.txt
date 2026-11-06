@@ -12,7 +12,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network DBus Svg Qml Quick QuickControls2)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network DBus Svg Qml Quick QuickControls2 WebEngineWidgets)
 find_package(Qt6 OPTIONAL_COMPONENTS WaylandClient WaylandScannerTools)
 find_package(GxdeBerneseQt6 REQUIRED)
 find_package(PkgConfig REQUIRED)
@@ -44,10 +44,8 @@ set(GXDE_AI_SEE_SOURCES
     src/chat/aicore.cpp
     src/chat/aicoreaccounts.cpp
     src/chat/chatclient.cpp
-    src/chat/chatwindow.cpp
+    src/chat/webchatwindow.cpp
     src/chat/chattheme.cpp
-    src/chat/markdown.cpp
-    src/chat/chatview.cpp
     src/ui/mimedroparea.cpp
     src/ui/pointertravel.cpp
     src/portal/dragwatcher.cpp
@@ -57,6 +55,41 @@ set(GXDE_AI_SEE_SOURCES
 )
 
 add_executable(gxde-ai-see ${GXDE_AI_SEE_SOURCES})
+
+# Chat WebUI will use NodeJS + TypeScript + Vite + ReactJS...
+find_program(NPM_EXECUTABLE npm REQUIRED)
+set(WEBUI_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/web_ui)
+set(WEBUI_OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/web_ui)
+set(WEBUI_QRC ${CMAKE_CURRENT_BINARY_DIR}/web_ui.qrc)
+set(WEBUI_RCC_CPP ${CMAKE_CURRENT_BINARY_DIR}/qrc_web_ui.cpp)
+set(WEBUI_NPM_STAMP ${WEBUI_SOURCE_DIR}/node_modules/.package-lock.json)
+file(GLOB_RECURSE WEBUI_INPUTS CONFIGURE_DEPENDS
+    ${WEBUI_SOURCE_DIR}/src/*
+    ${WEBUI_SOURCE_DIR}/public/*)
+list(APPEND WEBUI_INPUTS
+    ${WEBUI_SOURCE_DIR}/index.html
+    ${WEBUI_SOURCE_DIR}/vite.config.ts
+    ${WEBUI_SOURCE_DIR}/tsconfig.json
+    ${WEBUI_SOURCE_DIR}/tsconfig.app.json
+    ${WEBUI_SOURCE_DIR}/tsconfig.node.json)
+
+add_custom_command(OUTPUT ${WEBUI_NPM_STAMP}
+    COMMAND ${NPM_EXECUTABLE} ci --no-audit --no-fund
+    WORKING_DIRECTORY ${WEBUI_SOURCE_DIR}
+    DEPENDS ${WEBUI_SOURCE_DIR}/package.json ${WEBUI_SOURCE_DIR}/package-lock.json
+    COMMENT "Installing web UI dependencies"
+    VERBATIM)
+add_custom_command(OUTPUT ${WEBUI_RCC_CPP}
+    COMMAND ${NPM_EXECUTABLE} run build -- --outDir ${WEBUI_OUTPUT_DIR} --emptyOutDir
+    COMMAND ${CMAKE_COMMAND} -DDIR=${WEBUI_OUTPUT_DIR} -DOUTPUT=${WEBUI_QRC}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/qrc_gen.cmake
+    COMMAND Qt6::rcc --name web_ui --output ${WEBUI_RCC_CPP} ${WEBUI_QRC}
+    WORKING_DIRECTORY ${WEBUI_SOURCE_DIR}
+    DEPENDS ${WEBUI_NPM_STAMP} ${WEBUI_INPUTS}
+            ${CMAKE_CURRENT_SOURCE_DIR}/cmake/qrc_gen.cmake
+    COMMENT "Building web UI"
+    VERBATIM)
+target_sources(gxde-ai-see PRIVATE ${WEBUI_RCC_CPP})
 
 # The portal panel is Qt Quick, styled by GXTK7 (QtQuick.Controls.Gxde).
 qt_policy(SET QTP0001 NEW)
@@ -124,6 +157,7 @@ target_link_libraries(gxde-ai-see PRIVATE
     Qt6::Qml
     Qt6::Quick
     Qt6::QuickControls2
+    Qt6::WebEngineWidgets
     GxdeBernese::Qt6
     ${DTK2WIDGET_LIBRARIES}
     ${DTK6GUI_LIBRARIES}

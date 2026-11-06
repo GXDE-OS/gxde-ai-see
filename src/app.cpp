@@ -3,7 +3,7 @@
 
 #include "app.h"
 
-#include "chat/chatwindow.h"
+#include "chat/webchatwindow.h"
 #include "config.h"
 #include "portal/portalclient.h"
 #include "portal/dragwatcher.h"
@@ -234,7 +234,7 @@ void App::togglePanel()
 void App::showChatWindow()
 {
     if (!m_chatWindow) {
-        m_chatWindow = new ChatWindow;
+        m_chatWindow = new WebChatWindow;
     }
     m_chatWindow->activateForAsk();
 }

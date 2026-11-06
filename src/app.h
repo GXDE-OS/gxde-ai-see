@@ -5,7 +5,7 @@
 
 #include <QObject>
 
-class ChatWindow;
+class WebChatWindow;
 class PortalPanel;
 class QLocalServer;
 class StagingModel;
@@ -41,7 +41,7 @@ private:
     StagingModel *m_model = nullptr;
     PortalPanel *m_panel = nullptr;
     TodoWindow *m_todoWindow = nullptr;
-    ChatWindow *m_chatWindow = nullptr;
+    WebChatWindow *m_chatWindow = nullptr;
     QLocalServer *m_server = nullptr;
     bool m_daemon = false;
     bool m_dragging = false;
