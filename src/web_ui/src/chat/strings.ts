@@ -1,5 +1,4 @@
 export const t = {
-  appName: '小埃同学',
   newSession: '新会话',
   sessions: '会话',
   noSessions: '暂无会话',
@@ -85,12 +84,7 @@ export const t = {
   defaultAccount: (name: string) => `${name}（默认）`,
   modelAria: (label: string) => `模型，当前：${label}`,
   manageAccounts: '管理账号…',
-  more: '更多',
   settings: '设置',
-  stopReply: '停止回复',
-  retryLast: '重试上一条',
-  restartCore: '重启 GXDE AI Core',
-  about: '关于',
   coreRestarted: 'GXDE AI Core 已重启，MCP 服务器会在下一条消息时重新连接',
   settingsTitle: '小埃同学设置',
   accountsSection: 'GXDE AI Core 账号',

@@ -6,7 +6,6 @@
 #include "config.h"
 #include "aicoreaccounts.h"
 #include "chatbridge.h"
-#include "ui/aboutdialog.h"
 
 #include <DTitlebar>
 #include <QApplication>
@@ -14,9 +13,11 @@
 #include <QDBusMessage>
 #include <QDesktopServices>
 #include <QDropEvent>
+#include <QMenu>
 #include <QGuiApplication>
 #include <QMimeData>
 #include <QScreen>
+#include <QStyleHints>
 #include <QUrl>
 #include <QWebEngineNewWindowRequest>
 #include <QWebEnginePage>
@@ -49,6 +50,15 @@ void migrateLegacySettings()
     AiCoreAccountsPanel::importLegacyKey();
 }
 
+void paintSidebarFill(QWidget *window)
+{
+    const bool dark = QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Dark;
+    QPalette palette = window->palette();
+    palette.setColor(QPalette::Window, dark ? QColor(23, 23, 23) : QColor(247, 247, 248));
+    window->setPalette(palette);
+    window->setAutoFillBackground(true);
+}
+
 } // namespace
 
 WebChatWindow::WebChatWindow(QWidget *parent)
@@ -60,6 +70,15 @@ WebChatWindow::WebChatWindow(QWidget *parent)
     titlebar()->setTitle(tr("小埃同学"));
     titlebar()->setIcon(QApplication::windowIcon());
     titlebar()->setAutoHideOnFullscreen(true);
+    titlebar()->setBackgroundTransparent(true);
+    titlebar()->setSeparatorVisible(false);
+    /* DTK adds its own About and Exit after these */
+    auto *menu = new QMenu(this);
+    menu->addAction(tr("重启 GXDE AI Core"), m_bridge, &ChatBridge::restartCore);
+    titlebar()->setMenu(menu);
+    paintSidebarFill(this);
+    connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this,
+            [this]() { paintSidebarFill(this); });
     setMinimumSize(760, 520);
     resize(1000, 700);
 
@@ -92,9 +111,6 @@ WebChatWindow::WebChatWindow(QWidget *parent)
         }
     });
 
-    connect(m_bridge, &ChatBridge::aboutRequested, this, [this]() {
-        showAboutDialog(this, tr("GXDE 桌面的 AI 助手：传送门、内容工厂、待办与对话。"));
-    });
 
     QDBusConnection::sessionBus().connect(
         QStringLiteral("org.freedesktop.Notifications"),

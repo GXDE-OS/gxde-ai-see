@@ -11,13 +11,32 @@
 #include <QTranslator>
 
 #include "app.h"
+#include "ui/aboutdialog.h"
 
 DWIDGET_USE_NAMESPACE
+
+namespace {
+
+class Application : public DApplication
+{
+public:
+    using DApplication::DApplication;
+
+protected:
+    void handleAboutAction() override
+    {
+        showAboutDialog(activeWindow(),
+                        QCoreApplication::translate(
+                            "WebChatWindow", "GXDE 桌面的 AI 助手：传送门、内容工厂、待办与对话。"));
+    }
+};
+
+} // namespace
 
 int main(int argc, char *argv[])
 {
     QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
-    DApplication app(argc, argv);
+    Application app(argc, argv);
     app.setOrganizationName(QStringLiteral("GXDE"));
     app.setApplicationName(QStringLiteral("gxde-ai-see"));
     app.setApplicationDisplayName(QStringLiteral("GXDE 小埃同学"));

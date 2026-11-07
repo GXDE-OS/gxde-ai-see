@@ -4,16 +4,15 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import appIcon from '../assets/app-icon.png'
+import newDialogueIcon from '../assets/icons/new_dialogue.svg'
+import settingsIcon from '../assets/icons/settings.svg'
 import { t } from '../chat/strings'
 import type { Conversation } from '../ipc/bridge'
-import type { MenuEntry } from '../vendor/dsh/primitives/Menu.tsx'
 import { Button } from '../vendor/dsh/primitives/Button.tsx'
 import { HoverCard } from '../vendor/dsh/primitives/HoverCard.tsx'
 import { HoverCardGroup } from '../vendor/dsh/primitives/HoverCardGroup.tsx'
 import {
-  IconEditOutlineRegular, IconEllipsisOutlineMedium, IconEllipsisOutlineRegular, IconInfoOutlineRegular, IconNewChatOutlineMedium,
-  IconQueueOutlineRegular, IconRefreshOutlineRegular, IconSettingsOutlineMedium, IconStopFillRegular, IconTrashOutlineRegular,
+  IconEditOutlineRegular, IconEllipsisOutlineRegular, IconQueueOutlineRegular, IconTrashOutlineRegular,
 } from '../vendor/dsh/primitives/icons/index.tsx'
 import { Menu, MenuItemButton } from '../vendor/dsh/primitives/Menu.tsx'
 import { Modal } from '../vendor/dsh/primitives/Modal.tsx'
@@ -22,6 +21,7 @@ import footer from '../vendor/dsh/settings/AccountMenu.module.css'
 import sb from '../vendor/dsh/sidebar/SidebarRoot.module.css'
 import wb from '../vendor/dsh/workspace/WorkspaceBrowser.module.css'
 import rows from '../vendor/dsh/workspace/Rows.module.css'
+import { MaskIcon } from './MaskIcon'
 import local from './Sidebar.module.css'
 
 function timeLabel(updatedAt: number, now: number): string {
@@ -74,7 +74,7 @@ function SessionRow({ session, now, selected, state, deleteCount, onClick, onRen
   const span = timeLabel(session.updatedAt, now)
   const row = (
     <div
-      className={clsx(rows.sessionRow, selected && rows.selected, menuOpen && rows.menuOpen)}
+      className={clsx(rows.sessionRow, local.row, selected && [rows.selected, local.selected], menuOpen && rows.menuOpen)}
       role="treeitem"
       aria-selected={selected}
       tabIndex={0}
@@ -98,7 +98,7 @@ function SessionRow({ session, now, selected, state, deleteCount, onClick, onRen
     >
       <span className={rows.slot}>{state !== null && <StateDot state={state} />}</span>
       <span
-        className={rows.title}
+        className={clsx(rows.title, local.rowTitle)}
         onDoubleClick={(event) => {
           event.stopPropagation()
           onRename()
@@ -106,7 +106,7 @@ function SessionRow({ session, now, selected, state, deleteCount, onClick, onRen
       >
         {title}
       </span>
-      <span className={rows.time}>{span}</span>
+      <span className={clsx(rows.time, local.rowTime)}>{span}</span>
       <span
         className={rows.rowActions}
         onClick={(event) => {
@@ -237,69 +237,23 @@ export interface SidebarProps {
   runningId: string | null
   /** Conversations waiting on a tool confirmation. */
   waitingIds: string[]
-  actions: FooterActions
-}
-
-export interface FooterActions {
   onSettings: (() => void) | undefined
-  onStop: (() => void) | undefined
-  onRetryLast: (() => void) | undefined
-  onRestartCore: (() => void) | undefined
-  onAbout: (() => void) | undefined
 }
 
-function Footer({ onSettings, onStop, onRetryLast, onRestartCore, onAbout }: FooterActions) {
-  const [open, setOpen] = useState(false)
-  const run: Record<string, (() => void) | undefined> = { stop: onStop, retry: onRetryLast, restart: onRestartCore, about: onAbout }
-  const items: MenuEntry[] = [
-    { id: 'stop', label: t.stopReply, icon: <IconStopFillRegular size={16} />, disabled: onStop === undefined },
-    { id: 'retry', label: t.retryLast, icon: <IconRefreshOutlineRegular size={16} />, disabled: onRetryLast === undefined },
-    { type: 'separator', id: 'core' },
-    { id: 'restart', label: t.restartCore, icon: <IconRefreshOutlineRegular size={16} />, disabled: onRestartCore === undefined },
-    { id: 'about', label: t.about, icon: <IconInfoOutlineRegular size={16} />, disabled: onAbout === undefined },
-  ]
+function Footer({ onSettings }: { onSettings: (() => void) | undefined }) {
   return (
     <div className={sb.footArea}>
       <div className={clsx(sb.settingsArea, local.footer)}>
         <button type="button" className={clsx(footer.trigger, local.footerButton)} disabled={onSettings === undefined} onClick={onSettings}>
-          <IconSettingsOutlineMedium size={16} />
+          <MaskIcon src={settingsIcon} size={16} />
           <span className={footer.label}>{t.settings}</span>
         </button>
-        <Menu
-          open={open}
-          items={items}
-          side="top"
-          align="end"
-          portal
-          onSelect={(id) => {
-            setOpen(false)
-            run[id]?.()
-          }}
-          onClose={() => {
-            setOpen(false)
-          }}
-          anchor={(
-            <button
-              type="button"
-              className={clsx(footer.trigger, local.footerButton)}
-              data-collapsed="true"
-              aria-label={t.more}
-              aria-haspopup="menu"
-              aria-expanded={open}
-              onClick={() => {
-                setOpen(!open)
-              }}
-            >
-              <IconEllipsisOutlineMedium size={14} />
-            </button>
-          )}
-        />
       </div>
     </div>
   )
 }
 
-export function Sidebar({ sessions, currentId, onNew, onOpen, onRename, onDelete, runningId, waitingIds, actions }: SidebarProps) {
+export function Sidebar({ sessions, currentId, onNew, onOpen, onRename, onDelete, runningId, waitingIds, onSettings }: SidebarProps) {
   const now = useNow(60_000)
   const [picked, setPicked] = useState<string[]>([])
   const rangeStart = useRef<string | null>(null)
@@ -330,24 +284,11 @@ export function Sidebar({ sessions, currentId, onNew, onOpen, onRename, onDelete
   const deletion = (id: string) => selection.length > 1 && selection.includes(id) ? selection : [id]
 
   return (
-    <div className={sb.root}>
-      <div className={sb.logoRow}>
-        <button type="button" className={clsx(sb.brand, sb.wide)} aria-label={t.newSession} onClick={onNew}>
-          <span className={sb.brandIdentity} aria-hidden="true">
-            <span className={sb.brandMark}>
-              <img className={local.brandIcon} src={appIcon} alt="" />
-            </span>
-            <span className={sb.brandName}>
-              <span className={sb.fallbackBrandName}>{t.appName}</span>
-            </span>
-          </span>
-        </button>
-      </div>
-
-      <button type="button" className={sb.newSession} onClick={onNew}>
+    <div className={clsx(sb.root, local.root)}>
+      <button type="button" className={clsx(sb.newSession, local.newSession)} onClick={onNew}>
         <span className={sb.newSessionLabelMask}>
-          <span className={sb.newSessionContent}>
-            <IconNewChatOutlineMedium size={14} />
+          <span className={clsx(sb.newSessionContent, local.newSessionContent)}>
+            <MaskIcon src={newDialogueIcon} size={18} />
             <span className={clsx(sb.newSessionLabel, sb.wide)}>{t.newSession}</span>
           </span>
         </span>
@@ -392,7 +333,7 @@ export function Sidebar({ sessions, currentId, onNew, onOpen, onRename, onDelete
           </div>
         </div>
       </div>
-      <Footer {...actions} />
+      <Footer onSettings={onSettings} />
       {renaming !== null && (
         <RenameDialog
           key={renaming.id}

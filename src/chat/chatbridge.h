@@ -54,13 +54,13 @@ public:
     Q_INVOKABLE QJsonObject settings() const;
     /** Empty on success, otherwise why nothing was saved. */
     Q_INVOKABLE QString saveSettings(const QJsonObject &settings);
-    Q_INVOKABLE void restartCore();
-    Q_INVOKABLE void showAbout();
     /** Store a dropped image (base64) for the model to read; returns its path. */
     Q_INVOKABLE QString saveImage(const QString &base64);
 
     /** Bring the conversation of the running turn into view. */
     void revealTurn();
+    /** Stop AI Core; the next request starts it again. */
+    void restartCore();
 
 signals:
     void busyChanged();
@@ -85,7 +85,7 @@ signals:
     void replied(int callId, const QVariant &result, const QString &error);
 
     void permissionPending(const QString &title);
-    void aboutRequested();
+    void coreRestarted();
     void turnRevealRequested();
     /** URLs dropped at (x, y) in page coordinates; local files are file:// URLs. */
     void urlsDropped(const QStringList &urls, double x, double y);

@@ -221,15 +221,11 @@ export function installDevBridge() {
       if (valid) write(SETTINGS, { ...settings, mcpServers: mcp })
       done?.(valid ? '' : 'MCP 配置不是合法的 JSON 数组')
     },
-    restartCore: () => undefined,
-    showAbout: () => {
-      window.alert('小埃同学（开发模式）')
-    },
     saveImage: (_base64: string, done: Callback) => done?.(`/tmp/gxde-dev-${crypto.randomUUID()}.png`),
   }
   const signals = [
     'busyChanged', 'modeChanged', 'delta', 'thought', 'toolCall', 'permissionRequested', 'permissionDropped', 'finished',
-    'failed', 'activity', 'accountsChanged', 'askRequested', 'turnRevealRequested', 'urlsDropped', 'replied',
+    'failed', 'activity', 'accountsChanged', 'askRequested', 'turnRevealRequested', 'coreRestarted', 'urlsDropped', 'replied',
   ] satisfies (keyof BridgeEvents | 'replied')[]
   for (const name of signals) Object.defineProperty(raw, name, { value: signal(name) })
 

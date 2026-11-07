@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import clsx from 'clsx'
 import { useDrop } from './chat/drop'
 import { t } from './chat/strings'
 import { useAccounts, useModes } from './chat/useBackend'
@@ -9,6 +10,7 @@ import { SettingsDialog } from './components/SettingsDialog'
 import { Sidebar } from './components/Sidebar'
 import { useBridge } from './ipc/useBridge'
 import frame from './vendor/dsh/layout/AppFrame.module.css'
+import local from './App.module.css'
 
 const SIDEBAR_WIDTH = 280
 
@@ -68,18 +70,24 @@ export function App() {
     return off
   }, [bridge, openChat])
 
+  const { refresh: refreshAccounts } = accounts
+  useEffect(() => bridge?.on('coreRestarted', () => {
+    // Asking for the accounts starts AI Core again.
+    refreshAccounts()
+    setNotice(t.coreRestarted)
+  }), [bridge, refreshAccounts])
+
   const send = sendChat && ((text: string) => {
     setNotice(undefined)
     sendChat(text, chat.current === undefined ? askTitle : undefined)
     setAskTitle(undefined)
   })
 
-  const lastUser = chat.current?.messages.findLastIndex(message => message.role === 'user') ?? -1
   const approval = chat.approvals.find(item => item.conversationId === chat.current?.id)
 
   return (
-    <div className={frame.frame} style={{ gridTemplateColumns: `${SIDEBAR_WIDTH}px minmax(0, 1fr) 0px` }}>
-      <div className={frame.sidebarCol}>
+    <div className={clsx(frame.frame, local.frame)} style={{ gridTemplateColumns: `${SIDEBAR_WIDTH}px minmax(0, 1fr) 0px` }}>
+      <div className={clsx(frame.sidebarCol, local.sidebarCol)}>
         <Sidebar
           sessions={chat.conversations}
           currentId={chat.current?.id ?? null}
@@ -91,27 +99,12 @@ export function App() {
           onDelete={chat.remove}
           runningId={chat.runningId}
           waitingIds={chat.approvals.map(item => item.conversationId)}
-          actions={{
-            onSettings: bridge === null ? undefined : () => {
-              setSettingsOpen(true)
-            },
-            onStop: chat.runningId === null ? undefined : chat.stop,
-            onRetryLast: chat.runningId !== null || lastUser === -1 ? undefined : () => {
-              chat.retry(lastUser + 1)
-            },
-            onRestartCore: bridge === null ? undefined : () => {
-              bridge.restartCore()
-              // Asking for the accounts starts AI Core again.
-              accounts.refresh()
-              setNotice(t.coreRestarted)
-            },
-            onAbout: bridge === null ? undefined : () => {
-              bridge.showAbout()
-            },
+          onSettings={bridge === null ? undefined : () => {
+            setSettingsOpen(true)
           }}
         />
       </div>
-      <div className={frame.centerCol}>
+      <div className={clsx(frame.centerCol, local.centerCol)}>
         <ConversationPanel
           conversation={chat.current}
           running={chat.running}

@@ -1,0 +1,14 @@
+.frame {
+  background: var(--dsw-specific-sidebar-fill);
+}
+
+.sidebarCol {
+  border-right: none;
+}
+
+.centerCol {
+  background: var(--dsw-alias-bg-base);
+  border-top: 0.5px solid var(--dsw-alias-border-l3);
+  border-left: 0.5px solid var(--dsw-alias-border-l3);
+  border-top-left-radius: 12px;
+}

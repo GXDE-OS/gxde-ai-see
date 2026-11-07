@@ -106,6 +106,7 @@ export interface BridgeEvents {
   accountsChanged: []
   askRequested: [text: string, files: string[]]
   turnRevealRequested: []
+  coreRestarted: []
   /** Drops the page cannot read, such as local files, at page coordinates. */
   urlsDropped: [urls: string[], x: number, y: number]
 }
@@ -150,8 +151,6 @@ interface RawBridge extends RawSignals {
   activateAccount: QtMethod<[callId: number, id: string, model: string]>
   settings: QtMethod<[], ChatSettings>
   saveSettings: QtMethod<[settings: ChatSettings], string>
-  restartCore: QtMethod<[]>
-  showAbout: QtMethod<[]>
   saveImage: QtMethod<[base64: string], string>
 }
 
@@ -283,14 +282,6 @@ export class Bridge {
   /** Resolves to why nothing was saved, or '' on success. */
   saveSettings(settings: ChatSettings): Promise<string> {
     return this.invoke(this.raw.saveSettings, settings)
-  }
-
-  restartCore(): void {
-    this.raw.restartCore()
-  }
-
-  showAbout(): void {
-    this.raw.showAbout()
   }
 
   /** Store image bytes (base64) in the cache; resolves to the path, '' on failure. */

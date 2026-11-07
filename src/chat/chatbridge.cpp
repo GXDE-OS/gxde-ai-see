@@ -277,11 +277,7 @@ void ChatBridge::restartCore()
 {
     cancel();
     AiCore::instance()->stop();
-}
-
-void ChatBridge::showAbout()
-{
-    Q_EMIT aboutRequested();
+    Q_EMIT coreRestarted();
 }
 
 QString ChatBridge::saveImage(const QString &base64)
