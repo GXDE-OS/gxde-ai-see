@@ -5,6 +5,7 @@
 
 #include <QHash>
 #include <QJsonObject>
+#include <QJsonValue>
 #include <QList>
 #include <QObject>
 #include <QString>
@@ -73,9 +74,12 @@ public:
 signals:
     void delta(const QString &text);
     void thought(const QString &text);
-    /** A tool started, progressed or ended (\a status: pending, in_progress, completed, failed). */
+    /**
+     * A tool started, progressed or ended (\a status: pending, in_progress, completed, failed).
+     * \a content is the ACP ToolCallContent array, or null when this update left it unchanged.
+     */
     void toolCall(const QString &toolCallId, const QString &title, const QString &kind,
-                  const QString &status);
+                  const QString &status, const QJsonValue &content);
     /** \a key identifies the request for answerPermission(). */
     void permissionRequested(const QString &key, const AiCorePermission &request);
     /** The request disappeared without an answer from here (cancelled turn). */

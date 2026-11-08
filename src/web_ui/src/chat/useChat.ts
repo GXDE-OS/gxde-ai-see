@@ -162,8 +162,8 @@ export function useChat(bridge: Bridge | null): Chat {
       bridge.on('thought', (id, text) => {
         dispatch({ type: 'stream', id, time: now(), update: (reply, time) => appendReasoning(reply, text, time) })
       }),
-      bridge.on('toolCall', (id, toolCallId, title, kind, status: ToolCallStatus) => {
-        dispatch({ type: 'stream', id, time: now(), update: (reply, time) => updateTool(reply, toolCallId, title, kind, status, time) })
+      bridge.on('toolCall', (id, toolCallId, title, kind, status: ToolCallStatus, content) => {
+        dispatch({ type: 'stream', id, time: now(), update: (reply, time) => updateTool(reply, toolCallId, title, kind, status, content, time) })
       }),
       bridge.on('activity', (id) => {
         dispatch({ type: 'activity', id, time: now() })

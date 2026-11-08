@@ -59,8 +59,8 @@ ChatBridge::ChatBridge(QObject *parent)
     });
     connect(m_client, &ChatClient::toolCall, this,
             [this](const QString &id, const QString &title, const QString &kind,
-                   const QString &status) {
-                Q_EMIT toolCall(m_turnConversation, id, title, kind, status);
+                   const QString &status, const QJsonValue &content) {
+                Q_EMIT toolCall(m_turnConversation, id, title, kind, status, content);
             });
     connect(m_client, &ChatClient::permissionRequested, this,
             [this](const QString &key, const AiCorePermission &request) {

@@ -12,6 +12,7 @@ import cr from '../vendor/dsh/conversation/ConversationRoot.module.css'
 import { ApprovalCard } from './ApprovalCard'
 import { ChatView } from './ChatView'
 import { Composer, HeroShell } from './Composer'
+import local from './ConversationPanel.module.css'
 
 function useColumnWidth(body: HTMLElement | null) {
   useEffect(() => {
@@ -38,6 +39,22 @@ function useComposerHeight(scroller: HTMLElement | null, seat: HTMLElement | nul
       observer.disconnect()
     }
   }, [scroller, seat])
+}
+
+function useScrolled(scroller: HTMLElement | null): boolean {
+  const [scrolled, setScrolled] = useState(false)
+  useEffect(() => {
+    if (scroller === null) return
+    const update = () => {
+      setScrolled(scroller.scrollTop > 0)
+    }
+    update()
+    scroller.addEventListener('scroll', update, { passive: true })
+    return () => {
+      scroller.removeEventListener('scroll', update)
+    }
+  }, [scroller])
+  return scrolled
 }
 
 export interface ConversationPanelProps {
@@ -71,17 +88,21 @@ export function ConversationPanel({
   const [seat, setSeat] = useState<HTMLDivElement | null>(null)
   useColumnWidth(body)
   useComposerHeight(scroller, seat)
+  const scrolled = useScrolled(scroller)
 
   return (
     <div className={cr.root} data-phase={phase}>
-      <header className={clsx(cr.header, hero && cr.headerBlank, hero && cr.headerSessionless)}>
+      <header
+        className={clsx(cr.header, hero ? [cr.headerBlank, cr.headerSessionless] : local.header)}
+        data-scrolled={scrolled ? '' : undefined}
+      >
         <div className={cr.headerLeading} />
         <div className={cr.titleRow}>
           {!hero && (
             <div className={cr.titleCluster}>
               <nav className={cr.crumbs}>
                 <span className={cr.crumbSeg}>
-                  <span className={clsx(cr.crumb, cr.crumbCurrent)}>{conversation.title || t.untitled}</span>
+                  <span className={clsx(cr.crumb, cr.crumbCurrent, local.title)}>{conversation.title || t.untitled}</span>
                 </span>
               </nav>
             </div>

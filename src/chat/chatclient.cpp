@@ -95,7 +95,7 @@ QString ChatClient::modeLabel(const QString &modeId)
     }
 
     if (modeId == QStringLiteral("plan")) {
-        return tr("只读");
+        return tr("规划");
     }
 
     return tr("每次确认");
@@ -408,7 +408,10 @@ void ChatClient::handleUpdate(const QString &sessionId, const QJsonObject &updat
         Q_EMIT toolCall(update.value(QStringLiteral("toolCallId")).toString(),
                         update.value(QStringLiteral("title")).toString(),
                         update.value(QStringLiteral("kind")).toString(),
-                        update.value(QStringLiteral("status")).toString());
+                        update.value(QStringLiteral("status")).toString(),
+                        update.contains(QStringLiteral("content"))
+                                ? update.value(QStringLiteral("content"))
+                                : QJsonValue(QJsonValue::Null));
     }
 }
 

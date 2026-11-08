@@ -1,15 +1,16 @@
 /*
- * Heavily referenced DeepSeek Harness ui-approval ApprovalPanel
- * (MIT, see src/vendor/dsh/README.md).
+ * Behaviour from DeepSeek Harness ui-approval ApprovalPanel
+ * (MIT, see src/vendor/dsh/README.md); looks like a DTK2 DDialog.
  */
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { t } from '../chat/strings'
 import type { Approval } from '../chat/useChat'
 import type { PermissionOption } from '../ipc/bridge'
-import { Button } from '../vendor/dsh/primitives/Button.tsx'
-import { StateDot } from '../vendor/dsh/primitives/StateDot.tsx'
+import clsx from 'clsx'
+import appIcon from '../assets/app-icon.png'
 import css from '../vendor/dsh/approval/ApprovalPanel.module.css'
+import local from './ApprovalCard.module.css'
 
 const DETAIL_LIMIT = 600
 
@@ -62,25 +63,27 @@ export function ApprovalCard({ approval, onAnswer }: { approval: Approval; onAns
   }
   return (
     <div className={css.root} aria-busy={answered} onKeyDown={keydown}>
-      <div className={css.card}>
-        <div className={css.strip}><StateDot state={answered ? 'ongoing' : 'warning'} />{t.approvalWaiting}</div>
-        <div ref={body} className={css.body} tabIndex={0} role="group" aria-label={t.approvalDetail}>
-          <div className={css.headline}>{t.approvalTitle(name)}</div>
-          {detail !== '' && <div className={css.command}>{detail}</div>}
+      <div className={local.card} role="alertdialog" aria-label={t.approvalWaiting}>
+        <div ref={body} className={local.top} tabIndex={0} role="group" aria-label={t.approvalDetail}>
+          <img className={local.icon} src={appIcon} alt="" />
+          <div className={local.text}>
+            <div className={local.title}>{t.approvalTitle(name)}</div>
+            {detail !== '' && <div className={local.message}>{detail}</div>}
+          </div>
         </div>
-        <div className={css.actionRow}>
+        <div className={local.actions}>
           {options.map(option => (
-            <Button
+            <button
               key={option.optionId}
-              variant={option.kind === 'allow_once' ? 'primary' : 'outline'}
-              className={option.kind.startsWith('reject') ? css.reject : undefined}
+              type="button"
+              className={clsx(local.action, option.kind === 'allow_once' && local.recommend, option.kind.startsWith('reject') && local.warning)}
               disabled={answered}
               onClick={() => {
                 answer(option.optionId)
               }}
             >
               {LABELS[option.kind]}
-            </Button>
+            </button>
           ))}
         </div>
       </div>

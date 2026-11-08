@@ -1,4 +1,5 @@
-import type { ChatMessage, ReplyPart, StopReason, ToolCallStatus } from '../ipc/bridge'
+import type { ChatMessage, ReplyPart, StopReason, ToolCallStatus, ToolOutput } from '../ipc/bridge'
+import { unifiedDiff } from './diff'
 import { t } from './strings'
 
 function settleReasoning(parts: ReplyPart[], time: number): ReplyPart[] {
@@ -30,15 +31,46 @@ export function appendReasoning(reply: ChatMessage, text: string, time: number):
   }
 }
 
+interface AcpToolContent {
+  type?: string
+  content?: { type?: string; text?: string }
+  path?: string
+  oldText?: string | null
+  newText?: string
+}
+
+/** Text blocks and diffs from ACP ToolCallContent; diffs keep only the changed hunks. */
+function toolOutput(content: unknown[]): ToolOutput[] {
+  return content.flatMap((item): ToolOutput[] => {
+    const block = item as AcpToolContent
+    if (block.type === 'content' && block.content?.type === 'text' && block.content.text) {
+      return [{ type: 'text', text: block.content.text }]
+    }
+    if (block.type === 'diff' && typeof block.path === 'string') {
+      return [{ type: 'diff', path: block.path, lines: unifiedDiff(block.oldText ?? '', block.newText ?? '') }]
+    }
+    return []
+  })
+}
+
 export function updateTool(
-  reply: ChatMessage, id: string, title: string, kind: string, status: ToolCallStatus, time: number,
+  reply: ChatMessage, id: string, title: string, kind: string, status: ToolCallStatus, content: unknown[] | null, time: number,
 ): ChatMessage {
   const parts = settleReasoning(reply.parts ?? [], time)
   const index = parts.findIndex(part => part.type === 'tool' && part.id === id)
+  const output = content === null ? undefined : toolOutput(content)
   // A tool_call_update carries only the fields that changed.
-  if (index === -1) return { ...reply, parts: [...parts, { type: 'tool', id, title, kind, status: status || 'pending' }] }
+  if (index === -1) {
+    return { ...reply, parts: [...parts, { type: 'tool', id, title, kind, status: status || 'pending', ...(output && { output }) }] }
+  }
   const tool = parts[index] as Extract<ReplyPart, { type: 'tool' }>
-  const next = { ...tool, title: title || tool.title, kind: kind || tool.kind, status: status || tool.status }
+  const next = {
+    ...tool,
+    title: title || tool.title,
+    kind: kind || tool.kind,
+    status: status || tool.status,
+    ...(output && { output }),
+  }
   return { ...reply, parts: parts.map((part, at) => at === index ? next : part) }
 }
 

@@ -1,125 +1,66 @@
 /*
- * Heavily referenced DeepSeek Harness ui-chat ReasoningRow, RunningStatus and
+ * Heavily referenced DeepSeek Harness ui-chat RunningStatus and
  * MessageItem notices, and ui-tool ToolRow (MIT, see src/vendor/dsh/README.md).
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import clsx from 'clsx'
+import editIcon from '../assets/icons/edit.svg'
+import fileReadIcon from '../assets/icons/file_read.svg'
+import searchIcon from '../assets/icons/search.svg'
+import thinkIcon from '../assets/icons/think_content.svg'
 import { formatDuration } from '../chat/clock'
 import { t } from '../chat/strings'
-import type { ReplyPart, StopReason } from '../ipc/bridge'
+import type { ReplyPart, StopReason, ToolOutput } from '../ipc/bridge'
 import { DisclosureRow } from '../vendor/dsh/primitives/DisclosureRow.tsx'
 import {
-  IconAgentPresetOutlineRegular, IconApiOutlineRegular, IconBrowseOutlineRegular, IconEditOutlineRegular,
-  IconGlobeOutlineRegular, IconSearchOutlineRegular, IconThinkOutlineRegular, IconTrashOutlineRegular,
+  IconAgentPresetOutlineRegular, IconApiOutlineRegular, IconGlobeOutlineRegular, IconTrashOutlineRegular,
 } from '../vendor/dsh/primitives/icons/index.tsx'
-import { MarkdownText } from '../vendor/dsh/primitives/markdown/MarkdownText.tsx'
-import type { MarkdownLabels } from '../vendor/dsh/primitives/markdown/render.tsx'
 import { StateDot } from '../vendor/dsh/primitives/StateDot.tsx'
 import { TextShimmer } from '../vendor/dsh/primitives/TextShimmer.tsx'
 import a11y from '../vendor/dsh/chat/accessibility.module.css'
 import cv from '../vendor/dsh/chat/ChatView.module.css'
 import mi from '../vendor/dsh/chat/MessageItem.module.css'
-import rr from '../vendor/dsh/chat/ReasoningRow.module.css'
 import tr from '../vendor/dsh/tool/ToolRow.module.css'
-
-const THINK_ICON = <IconThinkOutlineRegular size={14} />
-
-function firstLine(text: string): string {
-  const newline = text.indexOf('\n')
-  return newline === -1 ? text : text.slice(0, newline)
-}
-
-function latestCompletedParagraphFirstLine(text: string): string {
-  let summary = ''
-  let paragraphStart = 0
-  const separator = /\r?\n(?:[\t ]*\r?\n)+/g
-  for (;;) {
-    const nextParagraph = separator.exec(text)
-    const paragraphEnd = nextParagraph === null ? text.length : nextParagraph.index + nextParagraph[0].indexOf('\n')
-    const newline = text.indexOf('\n', paragraphStart)
-    if (newline !== -1 && newline <= paragraphEnd) {
-      const candidate = text.slice(paragraphStart, newline).trim()
-      if (candidate !== '') summary = candidate
-    }
-    if (nextParagraph === null) return summary
-    paragraphStart = nextParagraph.index + nextParagraph[0].length
-  }
-}
-
-export function ReasoningRow({ part, running, labels }: {
-  part: Extract<ReplyPart, { type: 'reasoning' }>
-  running: boolean
-  labels: MarkdownLabels
-}) {
-  const [expanded, setExpanded] = useState(false)
-  const toggle = useCallback(() => {
-    setExpanded(open => !open)
-  }, [])
-  const summary = (running ? latestCompletedParagraphFirstLine(part.text) : firstLine(part.text)).replaceAll('**', '')
-  const title = running
-    ? t.thinking
-    : part.endedAt === undefined ? t.think : t.thought(formatDuration(Math.max(1000, part.endedAt - part.startedAt)))
-  const collapsedContent = useMemo(() => (
-    <>
-      <span className={rr.separator} data-shimmer-decoration aria-hidden />
-      <span className={rr.summary} data-streaming={running || undefined}>
-        <span className={rr.summaryText}>
-          <TextShimmer>{summary}</TextShimmer>
-        </span>
-      </span>
-    </>
-  ), [running, summary])
-  return (
-    <div
-      className={rr.root}
-      data-variant="think"
-      data-state={running ? 'running' : 'ok'}
-      data-expanded={expanded || undefined}
-      data-preview={(!expanded && running && summary !== '') || undefined}
-    >
-      {running && <span className={a11y.visuallyHidden}>{t.rowRunning}</span>}
-      <DisclosureRow
-        rowClassName={rr.row}
-        leadingClassName={rr.leading}
-        titleClassName={rr.title}
-        icon={THINK_ICON}
-        title={title}
-        running={running}
-        open={expanded}
-        expandable
-        expandOnRowClick
-        onToggle={toggle}
-        collapsedContent={collapsedContent}
-      >
-        {expanded && (
-          <div className={rr.thinkBody}>
-            <MarkdownText text={part.text} streaming={running} labels={labels} variant="compact" />
-          </div>
-        )}
-      </DisclosureRow>
-    </div>
-  )
-}
+import { MaskIcon } from './MaskIcon'
+import css from './ReplyRows.module.css'
 
 type ToolState = 'preparing' | 'running' | 'ok' | 'error' | 'stopped'
 
 /** ACP tool kinds onto upstream's row variants and icons. */
 function toolLook(kind: string): { variant: string; icon: ReactNode } {
   switch (kind) {
-    case 'read': return { variant: 'read', icon: <IconBrowseOutlineRegular size={14} /> }
-    case 'search': return { variant: 'search', icon: <IconSearchOutlineRegular size={14} /> }
+    case 'read': return { variant: 'read', icon: <MaskIcon src={fileReadIcon} size={14} /> }
+    case 'search': return { variant: 'search', icon: <MaskIcon src={searchIcon} size={14} /> }
     case 'execute': return { variant: 'bash', icon: <IconApiOutlineRegular size={14} /> }
     case 'edit':
-    case 'move': return { variant: 'edit', icon: <IconEditOutlineRegular size={14} /> }
+    case 'move': return { variant: 'edit', icon: <MaskIcon src={editIcon} size={14} /> }
     case 'delete': return { variant: 'edit', icon: <IconTrashOutlineRegular size={14} /> }
     case 'fetch': return { variant: 'others', icon: <IconGlobeOutlineRegular size={14} /> }
-    case 'think': return { variant: 'others', icon: THINK_ICON }
+    case 'think': return { variant: 'others', icon: <MaskIcon src={thinkIcon} size={14} /> }
     default: return { variant: 'others', icon: <IconAgentPresetOutlineRegular size={14} /> }
   }
 }
 
-const noop = () => undefined
+function DiffLine({ line }: { line: string }) {
+  const mark = line.startsWith('@@') ? 'hunk' : line[0] === '+' ? 'added' : line[0] === '-' ? 'removed' : undefined
+  return <div className={css.diffLine} data-diff={mark}>{line || ' '}</div>
+}
+
+function ToolOutputView({ output }: { output: ToolOutput[] }) {
+  return (
+    <div className={css.output}>
+      {output.map((block, at) => block.type === 'text'
+        ? <pre key={at} className={css.outputText}>{block.text}</pre>
+        : (
+            <div key={at} className={css.diff}>
+              <div className={css.diffPath}>{block.path}</div>
+              <pre className={css.diffBody}>{block.lines.map((line, index) => <DiffLine key={index} line={line} />)}</pre>
+            </div>
+          ))}
+    </div>
+  )
+}
 
 export function ToolRow({ part, turnRunning }: { part: Extract<ReplyPart, { type: 'tool' }>; turnRunning: boolean }) {
   const settled = part.status === 'completed' || part.status === 'failed'
@@ -130,6 +71,11 @@ export function ToolRow({ part, turnRunning }: { part: Extract<ReplyPart, { type
   const summary = { preparing: t.toolPending, running: t.toolRunning, error: t.toolFailed, stopped: t.stopped, ok: '' }[state]
   const status = { preparing: t.toolPending, running: t.rowRunning, error: t.rowFailed, stopped: t.stopped, ok: null }[state]
   const { variant, icon } = toolLook(part.kind)
+  const [open, setOpen] = useState(false)
+  const toggle = useCallback(() => {
+    setOpen(value => !value)
+  }, [])
+  const expandable = (part.output?.length ?? 0) > 0
   const collapsedContent = summary !== '' && (
     <>
       <span className={tr.sep} data-shimmer-decoration aria-hidden />
@@ -148,11 +94,14 @@ export function ToolRow({ part, turnRunning }: { part: Extract<ReplyPart, { type
         icon={icon}
         title={part.title || part.kind}
         running={state === 'running' || state === 'preparing'}
-        open={false}
-        expandable={false}
-        onToggle={noop}
+        open={open && expandable}
+        expandable={expandable}
+        expandOnRowClick
+        onToggle={toggle}
         collapsedContent={collapsedContent}
-      />
+      >
+        {part.output !== undefined && <ToolOutputView output={part.output} />}
+      </DisclosureRow>
     </div>
   )
 }

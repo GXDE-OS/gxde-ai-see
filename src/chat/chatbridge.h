@@ -68,9 +68,9 @@ signals:
 
     void delta(const QString &conversationId, const QString &text);
     void thought(const QString &conversationId, const QString &text);
-    /** \a status: pending, in_progress, completed, failed */
+    /** \a status: pending, in_progress, completed, failed; \a content: ACP content or null */
     void toolCall(const QString &conversationId, const QString &toolCallId, const QString &title,
-                  const QString &kind, const QString &status);
+                  const QString &kind, const QString &status, const QJsonValue &content);
 
     void permissionRequested(const QString &conversationId, const QString &key,
                              const QJsonObject &toolCall, const QJsonArray &options);

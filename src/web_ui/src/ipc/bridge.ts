@@ -11,7 +11,12 @@ export type Role = 'system' | 'user' | 'assistant'
 export type ReplyPart =
   | { type: 'text'; text: string }
   | { type: 'reasoning'; text: string; startedAt: number; endedAt?: number }
-  | { type: 'tool'; id: string; title: string; kind: string; status: ToolCallStatus }
+  | { type: 'tool'; id: string; title: string; kind: string; status: ToolCallStatus; output?: ToolOutput[] }
+
+/** What a tool call showed: its text, or an edit as unified diff lines. */
+export type ToolOutput =
+  | { type: 'text'; text: string }
+  | { type: 'diff'; path: string; lines: string[] }
 
 export interface ChatMessage {
   role: Role
@@ -92,6 +97,8 @@ export interface BridgeEvents {
     title: string,
     kind: string,
     status: ToolCallStatus,
+    /** ACP ToolCallContent; null when the update left it unchanged. */
+    content: unknown[] | null,
   ]
   permissionRequested: [
     conversationId: string,

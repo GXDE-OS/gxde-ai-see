@@ -23,3 +23,16 @@
   font-size: 12px;
   line-height: 18px;
 }
+
+.card.card {
+  border-radius: 8px;
+}
+
+.send.send {
+  border-radius: 8px;
+  background: var(--gxde-accent);
+}
+
+.send.send:hover:not(:disabled) {
+  background: var(--gxde-accent-hover);
+}

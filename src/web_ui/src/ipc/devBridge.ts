@@ -16,7 +16,7 @@ const MODES = [
   { id: 'default', label: '每次确认' },
   { id: 'autoEdit', label: '自动允许编辑' },
   { id: 'yolo', label: '全部自动允许' },
-  { id: 'plan', label: '只读' },
+  { id: 'plan', label: '规划' },
 ]
 
 const PRESETS = [{
@@ -97,7 +97,7 @@ export function installDevBridge() {
       emit('activity', id)
     }
     const toolId = crypto.randomUUID()
-    emit('toolCall', id, toolId, `cat ${question.split('\n')[0]!.slice(0, 20) || 'README.md'}`, 'read', 'pending')
+    emit('toolCall', id, toolId, `cat ${question.split('\n')[0]!.slice(0, 20) || 'README.md'}`, 'read', 'pending', null)
     if (mode === 'default') {
       const key = crypto.randomUUID()
       emit('permissionRequested', id, key, { toolCallId: toolId, title: '模拟工具调用', kind: 'execute', content: [{ type: 'content', content: { type: 'text', text: `echo ${JSON.stringify(question.slice(0, 40))}` } }] }, [
@@ -110,13 +110,16 @@ export function installDevBridge() {
       })
       answers.delete(key)
       if (!alive()) return
-      emit('toolCall', id, toolId, '', '', answer === 'reject' || answer === '' ? 'failed' : 'completed')
+      const rejected = answer === 'reject' || answer === ''
+      emit('toolCall', id, toolId, '', '', rejected ? 'failed' : 'completed', [{ type: 'content', content: { type: 'text', text: rejected ? '用户拒绝了这次工具调用。' : question } }])
     }
     else {
-      emit('toolCall', id, toolId, '', '', 'in_progress')
+      emit('toolCall', id, toolId, '', '', 'in_progress', null)
       await sleep(400)
       if (!alive()) return
-      emit('toolCall', id, toolId, '', '', mode === 'plan' ? 'failed' : 'completed')
+      emit('toolCall', id, toolId, '', '', mode === 'plan' ? 'failed' : 'completed', mode === 'plan'
+        ? [{ type: 'content', content: { type: 'text', text: '规划模式下不能修改源代码。' } }]
+        : [{ type: 'diff', path: 'README.md', oldText: '# 标题\n\n旧的一行\n结尾\n', newText: '# 标题\n\n新的一行\n又加一行\n结尾\n' }])
     }
     const text = `开发模式的模拟回复，没有经过模型（所选：${answeredBy}）。\n\n你说的是：\n\n> ${question.replace(/\n/g, '\n> ')}\n\n\`\`\`ts\nconsole.log('dev bridge')\n\`\`\``
     for (let at = 0; at < text.length; at += 6) {

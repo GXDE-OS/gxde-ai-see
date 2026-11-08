@@ -5,29 +5,31 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import clsx from 'clsx'
+import acceptEditsIcon from '../assets/icons/accept_edits_on.svg'
+import manualApprovalIcon from '../assets/icons/manual_approval.svg'
+import planModeIcon from '../assets/icons/plan_mode.svg'
+import yoloIcon from '../assets/icons/yolo.svg'
 import { t } from '../chat/strings'
 import type { Accounts, Modes } from '../chat/useBackend'
 import type { Provider } from '../ipc/bridge'
 import { IconCheckOutlineRegular, IconChevronDownOutlineRegular } from '../vendor/dsh/primitives/icons/index.tsx'
 import { Menu } from '../vendor/dsh/primitives/Menu.tsx'
 import type { MenuEntry } from '../vendor/dsh/primitives/Menu.tsx'
-import {
-  PermissionIconAutoReviewRegular, PermissionIconFullAccessRegular, PermissionIconReadOnlyRegular,
-  PermissionIconWorkspaceWriteRegular,
-} from '../vendor/dsh/primitives/PermissionIcon.tsx'
 import { RiskConfirmation } from '../vendor/dsh/primitives/RiskConfirmation.tsx'
 import css from '../vendor/dsh/permission/PermissionSelect.module.css'
 import local from './ComposerTools.module.css'
+import { MaskIcon } from './MaskIcon'
 
 const YOLO = 'yolo'
 
+const MODE_ICONS: Record<string, string> = {
+  plan: planModeIcon,
+  autoEdit: acceptEditsIcon,
+  [YOLO]: yoloIcon,
+}
+
 function modeGlyph(id: string): ReactNode {
-  switch (id) {
-    case 'plan': return <PermissionIconReadOnlyRegular />
-    case 'autoEdit': return <PermissionIconWorkspaceWriteRegular />
-    case YOLO: return <PermissionIconFullAccessRegular />
-    default: return <PermissionIconAutoReviewRegular />
-  }
+  return <MaskIcon src={MODE_ICONS[id] ?? manualApprovalIcon} size={14} />
 }
 
 function Trigger({ icon, label, aria, title, open, onClick }: {

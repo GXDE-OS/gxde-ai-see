@@ -1,0 +1,80 @@
+/*
+ * Tool output after LibreChat's ToolCallInfo and theme defaults
+ * (MIT, Copyright (c) 2026 LibreChat).
+ */
+.output {
+  --out-border: rgb(227, 227, 227);
+  --out-fill: rgb(247, 247, 248);
+  --out-bar: rgb(236, 236, 236);
+  --out-text: rgb(66, 66, 66);
+  --out-hunk: rgb(89, 89, 89);
+  --out-added: rgba(16, 163, 127, 0.14);
+  --out-removed: rgba(239, 68, 68, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 4px 0 8px 22px;
+  color: var(--out-text);
+  font-family: 'Roboto Mono', ui-monospace, 'Cascadia Mono', 'Liberation Mono', monospace;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+:global(body[data-ds-dark-theme]) .output {
+  --out-border: rgb(57, 57, 57);
+  --out-fill: rgb(23, 23, 23);
+  --out-bar: rgb(33, 33, 33);
+  --out-text: rgb(205, 205, 205);
+  --out-hunk: rgb(153, 150, 150);
+  --out-added: rgba(16, 163, 127, 0.2);
+  --out-removed: rgba(239, 68, 68, 0.2);
+}
+
+.outputText,
+.diff {
+  max-height: 320px;
+  margin: 0;
+  overflow: auto;
+  border: 1px solid var(--out-border);
+  border-radius: 8px;
+  background: var(--out-fill);
+}
+
+.outputText {
+  padding: 8px 12px;
+  font: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.diffPath {
+  position: sticky;
+  top: 0;
+  padding: 4px 12px;
+  background: var(--out-bar);
+  font-weight: 500;
+}
+
+.diffBody {
+  min-width: max-content;
+  margin: 0;
+  padding: 4px 0;
+  font: inherit;
+}
+
+.diffLine {
+  padding: 0 12px;
+  white-space: pre;
+}
+
+.diffLine[data-diff='hunk'] {
+  color: var(--out-hunk);
+}
+
+.diffLine[data-diff='added'] {
+  background: var(--out-added);
+}
+
+.diffLine[data-diff='removed'] {
+  background: var(--out-removed);
+}

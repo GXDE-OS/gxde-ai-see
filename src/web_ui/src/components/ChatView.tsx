@@ -6,6 +6,10 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import clsx from 'clsx'
+import copyIcon from '../assets/icons/copy.svg'
+import editIcon from '../assets/icons/edit.svg'
+import forkIcon from '../assets/icons/fork.svg'
+import redoIcon from '../assets/icons/redo.svg'
 import { formatClock, useCalendarDay } from '../chat/clock'
 import { replyParts } from '../chat/reply'
 import { t } from '../chat/strings'
@@ -13,11 +17,8 @@ import type { ChatMessage } from '../ipc/bridge'
 import { writeClipboard } from '../vendor/dsh/primitives/clipboard.ts'
 import { Button } from '../vendor/dsh/primitives/Button.tsx'
 import {
-  IconBranchOutlineRegular, IconCheckOutlineRegular, IconChevronDownOutlineRegular, IconCopyOutlineRegular, IconEditOutlineRegular,
-  IconRefreshOutlineRegular,
+  IconCheckOutlineRegular, IconChevronDownOutlineRegular,
 } from '../vendor/dsh/primitives/icons/index.tsx'
-import { MarkdownText } from '../vendor/dsh/primitives/markdown/MarkdownText.tsx'
-import type { MarkdownLabels } from '../vendor/dsh/primitives/markdown/render.tsx'
 import { Tooltip } from '../vendor/dsh/primitives/Tooltip.tsx'
 import cv from '../vendor/dsh/chat/ChatView.module.css'
 import mi from '../vendor/dsh/chat/MessageItem.module.css'
@@ -25,17 +26,11 @@ import am from '../vendor/dsh/chat/AssistantMarkdown.module.css'
 import ma from '../vendor/dsh/chat/MessageIconActions.module.css'
 import tt from '../vendor/dsh/chat/TurnTailNodeView.module.css'
 import ie from '../vendor/dsh/primitives/InlineEditor.module.css'
-import { ReasoningRow, ReplyNotice, RunningStatus, ToolRow } from './ReplyRows'
+import { Markdown } from './Markdown'
+import { MaskIcon } from './MaskIcon'
+import { ReplyNotice, RunningStatus, ToolRow } from './ReplyRows'
+import { Thinking } from './Thinking'
 import local from './ChatView.module.css'
-
-const LABELS: MarkdownLabels = {
-  code: {
-    copyLabel: t.copy,
-    copiedLabel: t.copied,
-    toolbarLabels: { codeLabel: t.codeBlock, wrapLabel: t.wrap, unwrapLabel: t.unwrap },
-  },
-  footnotes: t.footnotes,
-}
 
 const FOLLOW_SLACK = 32
 
@@ -85,7 +80,7 @@ function MessageActions({ text, time, clock, actions, className }: MessageAction
   return (
     <div className={clsx(ma.actions, className)} data-clock={clock}>
       {clock === 'start' && clockEl}
-      {text !== '' && <ActionButton label={label} icon={copied ? <IconCheckOutlineRegular /> : <IconCopyOutlineRegular />} run={onCopy} />}
+      {text !== '' && <ActionButton label={label} icon={copied ? <IconCheckOutlineRegular /> : <MaskIcon src={copyIcon} size={16} />} run={onCopy} />}
       {actions.map(action => <ActionButton key={action.label} {...action} />)}
       {clock === 'end' && <span className={ma.endInfo}>{clockEl}</span>}
     </div>
@@ -148,26 +143,26 @@ function UserMessage({ text, time, onEdit, onFork }: {
     )
   }
   const actions: Action[] = [
-    ...(onEdit === undefined ? [] : [{ label: t.edit, icon: <IconEditOutlineRegular />, run: () => {
+    ...(onEdit === undefined ? [] : [{ label: t.edit, icon: <MaskIcon src={editIcon} size={16} />, run: () => {
       setEditing(true)
     } }]),
-    { label: t.branch, icon: <IconBranchOutlineRegular />, run: onFork },
+    { label: t.branch, icon: <MaskIcon src={forkIcon} size={16} />, run: onFork },
   ]
   return (
     <div className={mi.userRow}>
       <div className={mi.userStack}>
-        <div className={mi.bubble}>{text}</div>
+        <div className={clsx(mi.bubble, local.bubble)}>{text}</div>
       </div>
       <MessageActions text={text} time={time} clock="start" actions={actions} />
     </div>
   )
 }
 
-function AssistantMessage({ text, streaming }: { text: string; streaming: boolean }) {
+function AssistantMessage({ text }: { text: string }) {
   return (
     <div className={am.root}>
       <div className={am.body}>
-        <MarkdownText text={text} streaming={streaming} labels={LABELS} />
+        <Markdown text={text} />
       </div>
     </div>
   )
@@ -201,8 +196,8 @@ const Reply = memo(function Reply({ message, live, onRetry, onFork }: {
   const { parts, stopReason, error } = useMemo(() => replyParts(message), [message])
   const text = parts.flatMap(part => part.type === 'text' ? [part.text] : []).join('\n\n')
   const actions: Action[] = [
-    ...(onRetry === undefined ? [] : [{ label: t.retry, icon: <IconRefreshOutlineRegular />, run: onRetry }]),
-    { label: t.branch, icon: <IconBranchOutlineRegular />, run: onFork },
+    ...(onRetry === undefined ? [] : [{ label: t.retry, icon: <MaskIcon src={redoIcon} size={16} />, run: onRetry }]),
+    { label: t.branch, icon: <MaskIcon src={forkIcon} size={16} />, run: onFork },
   ]
   return (
     <>
@@ -210,14 +205,14 @@ const Reply = memo(function Reply({ message, live, onRetry, onFork }: {
         if (part.type === 'reasoning') {
           return (
             <FlowItem key={at} kind="reasoning">
-              <ReasoningRow part={part} running={live && part.endedAt === undefined} labels={LABELS} />
+              <Thinking text={part.text} running={live && part.endedAt === undefined} />
             </FlowItem>
           )
         }
         if (part.type === 'tool') {
           return <FlowItem key={at} kind="tool"><div className={cv.callRow}><ToolRow part={part} turnRunning={live} /></div></FlowItem>
         }
-        return <FlowItem key={at} kind="assistant"><AssistantMessage text={part.text} streaming={live && at === parts.length - 1} /></FlowItem>
+        return <FlowItem key={at} kind="assistant"><AssistantMessage text={part.text} /></FlowItem>
       })}
       {!live && (stopReason !== undefined || error !== undefined) && (
         <FlowItem kind="notice"><ReplyNotice stopReason={stopReason} error={error} /></FlowItem>
@@ -329,8 +324,8 @@ export function ChatView({ messages, running, activityAt, waiting, scroller, onR
         </div>
       </div>
       {!following && (
-        <div className={cv.toBottomSlot}>
-          <button type="button" className={cv.toBottom} aria-label={t.toBottom} onClick={() => {
+        <div className={clsx(cv.toBottomSlot, local.toBottomSlot)}>
+          <button type="button" className={clsx(cv.toBottom, local.toBottom)} aria-label={t.toBottom} onClick={() => {
             returnToBottom()
           }}>
             <IconChevronDownOutlineRegular />

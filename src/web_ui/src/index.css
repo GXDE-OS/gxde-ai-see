@@ -62,3 +62,15 @@ body[data-ds-dark-theme] {
   --dsw-specific-sidebar-fill: rgb(23, 23, 23);
   --gxde-row-selected: rgb(36, 60, 77);
 }
+
+body {
+  --gxde-accent: #0b79b3;
+  --gxde-accent-hover: #096697;
+  --dsw-alias-link: var(--gxde-accent);
+}
+
+body[data-ds-dark-theme] {
+  --gxde-accent: #0c5c94;
+  --gxde-accent-hover: #0e6baa;
+  --dsw-alias-link: var(--gxde-accent);
+}
