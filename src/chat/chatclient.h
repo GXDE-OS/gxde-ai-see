@@ -5,10 +5,13 @@
 
 #include <QHash>
 #include <QJsonObject>
+#include <QJsonValue>
 #include <QList>
 #include <QObject>
 #include <QString>
 #include <QVector>
+
+#include <functional>
 
 #include "aicore.h"
 
@@ -16,6 +19,13 @@ struct ChatMessage
 {
     QString role; // system / user / assistant
     QString content;
+};
+
+/** An AI Core provider account and model; empty means the account set as default. */
+struct ChatProvider
+{
+    QString accountId;
+    QString model;
 };
 
 /**
@@ -45,7 +55,8 @@ public:
      * Answer the last message of \a history, which must be the user's.
      * \a conversationId ties the turn to its AI Core session.
      */
-    void send(const QString &conversationId, const QVector<ChatMessage> &history);
+    void send(const QString &conversationId, const QVector<ChatMessage> &history,
+              const ChatProvider &provider);
     void cancel();
 
     /** Drop the session of a conversation that was deleted. */
@@ -63,9 +74,12 @@ public:
 signals:
     void delta(const QString &text);
     void thought(const QString &text);
-    /** A tool started, progressed or ended (\a status: pending, in_progress, completed, failed). */
+    /**
+     * A tool started, progressed or ended (\a status: pending, in_progress, completed, failed).
+     * \a content is the ACP ToolCallContent array, or null when this update left it unchanged.
+     */
     void toolCall(const QString &toolCallId, const QString &title, const QString &kind,
-                  const QString &status);
+                  const QString &status, const QJsonValue &content);
     /** \a key identifies the request for answerPermission(). */
     void permissionRequested(const QString &key, const AiCorePermission &request);
     /** The request disappeared without an answer from here (cancelled turn). */
@@ -85,9 +99,14 @@ private:
         QString id;
         /* conversation messages the session has seen */
         int synced = 0;
+        ChatProvider provider;
     };
 
-    void startTurn(const QString &conversationId, const QVector<ChatMessage> &history);
+    void startTurn(const QString &conversationId, const QVector<ChatMessage> &history,
+                   const ChatProvider &provider);
+    /** Switch the session to \a provider if it is on another, then run \a then. */
+    void useProvider(const QString &conversationId, const QString &sessionId,
+                     const ChatProvider &provider, const std::function<void()> &then);
     void prompt(const QString &conversationId, const QString &sessionId,
                 const QJsonArray &blocks, int syncedAfter);
     void endTurn();

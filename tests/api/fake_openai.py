@@ -6,12 +6,15 @@
 GXDE AI Core talks to it like to a real provider.  The answer depends on the
 last message:
 
+* a request for a title    -> a decorated title naming the model, or a tool call
+  when the conversation says "use a tool"
 * a tool result            -> "完成：<tool output>"
 * user text with "shell"   -> a run_shell_command call that creates a file
 * user text with "mcp"     -> a call of the MCP ``echo`` tool
 * user text with "think"   -> reasoning_content first, then "想好了"
-* anything else            -> "users=<n> replay=<yes|no>", which tells the
-  test whether the session was reused (n grows) or rebuilt from a replay.
+* anything else            -> "users=<n> replay=<yes|no> model=<model>", which
+  tells the test whether the session was reused (n grows) or rebuilt from a
+  replay, and which model answered.
 """
 
 import json
@@ -49,7 +52,16 @@ class Handler(BaseHTTPRequestHandler):
         # message: only the final line is what the user just asked
         asked = last_text.strip().splitlines()[-1] if last_text.strip() else ""
 
-        if last.get("role") == "tool":
+        if "简短的标题" in last_text:
+            if "use a tool" in last_text:
+                chunks = [tool_call("run_shell_command",
+                                    {"command": "touch touched_by_title",
+                                     "description": "must not run"})]
+            else:
+                chunks = [chunk({"role": "assistant",
+                                 "content": "<think>嗯</think>\n\n**标题：《%s 的对话》**\n多余的一行"
+                                            % body.get("model", "")}, "stop")]
+        elif last.get("role") == "tool":
             chunks = [chunk({"role": "assistant", "content": "完成："}),
                       chunk({"content": last_text[:200]}, "stop")]
         elif "shell" in asked:
@@ -70,8 +82,8 @@ class Handler(BaseHTTPRequestHandler):
         else:
             replay = any("此前的记录" in text_of(m) for m in users)
             chunks = [chunk({"role": "assistant",
-                             "content": "users=%d replay=%s" % (len(users),
-                                                                "yes" if replay else "no")},
+                             "content": "users=%d replay=%s model=%s" % (
+                                 len(users), "yes" if replay else "no", body.get("model", ""))},
                             "stop")]
 
         self.send_response(200)

@@ -1,0 +1,127 @@
+/*
+ * Laid out like a DTK2 DDialog: colours and metrics follow its themes in
+ * dtk2widget-qt6 (LGPL-3.0-or-later).
+ */
+.card {
+  --dialog-fill: rgba(255, 255, 255, 0.8);
+  --dialog-border: rgba(0, 0, 0, 0.08);
+  --dialog-title: #000;
+  --dialog-message: #444;
+  --dialog-action: #303030;
+  --dialog-recommend: #0087ff;
+  --dialog-warning: #ff5a5a;
+  --dialog-line: rgba(0, 0, 0, 0.06);
+  --dialog-vline: rgba(0, 0, 0, 0.1);
+  --dialog-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  width: 100%;
+  max-width: var(--dsh-chat-content-width);
+  border: 1px solid var(--dialog-border);
+  border-radius: 8px;
+  background: var(--dialog-fill);
+  backdrop-filter: blur(6px);
+  box-shadow: var(--dialog-shadow);
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+:global(body[data-ds-dark-theme]) .card {
+  --dialog-fill: rgba(30, 31, 35, 0.86);
+  --dialog-border: rgba(255, 255, 255, 0.06);
+  --dialog-title: #f0f0f0;
+  --dialog-message: #b8b8b8;
+  --dialog-action: #d0d0d0;
+  --dialog-recommend: #4cc2ff;
+  --dialog-warning: #ff6b6b;
+  --dialog-line: rgba(255, 255, 255, 0.06);
+  --dialog-vline: rgba(255, 255, 255, 0.1);
+  --dialog-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.top {
+  display: flex;
+  gap: 20px;
+  box-sizing: border-box;
+  max-height: var(--dsh-composer-text-max-height);
+  overflow-y: auto;
+  padding: 14px 20px;
+  outline: none;
+}
+
+.icon {
+  flex: none;
+  width: 32px;
+  height: 32px;
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.title {
+  color: var(--dialog-title);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+
+.message {
+  color: var(--dialog-message);
+  font-family: var(--ds-font-family-code);
+  font-size: 13px;
+  line-height: 20px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.actions {
+  display: flex;
+}
+
+.action {
+  flex: 1;
+  height: 28px;
+  padding: 0 8px;
+  border: none;
+  border-top: 1px solid var(--dialog-line);
+  background: transparent;
+  color: var(--dialog-action);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.action + .action {
+  border-left: 1px solid var(--dialog-vline);
+}
+
+.recommend {
+  color: var(--dialog-recommend);
+  font-weight: 500;
+}
+
+.warning {
+  color: var(--dialog-warning);
+  font-weight: 500;
+}
+
+.action:hover:not(:disabled) {
+  background: linear-gradient(#8ccfff, #4bb8ff);
+  color: #fff;
+}
+
+.action:active:not(:disabled) {
+  background: linear-gradient(#0b8cff, #0aa1ff);
+  color: #fff;
+}
+
+.action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

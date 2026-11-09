@@ -1,0 +1,82 @@
+/*
+ * Popup menus in the look of DTK2 menus: colours and metrics follow
+ * dstyleplugin in gxde-qt6-integration (GPL-3.0-or-later).
+ */
+body {
+  /* DTK2 drops a blurred menu's fill to 60%; a little lower here */
+  --gxde-menu-fill: rgba(255, 255, 255, 0.45);
+  --gxde-menu-text: rgb(25, 25, 25);
+  --gxde-menu-highlight: #2ca7f8;
+  --gxde-menu-separator: rgba(0, 0, 0, 0.1);
+  --gxde-menu-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+body[data-ds-dark-theme] {
+  --gxde-menu-fill: rgba(49, 49, 49, 0.45);
+  --gxde-menu-text: rgb(255, 255, 255);
+  --gxde-menu-highlight: #61b5f8;
+  --gxde-menu-separator: rgba(255, 255, 255, 0.1);
+  --gxde-menu-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+html [data-menu-material] {
+  --dsw-menu-surface-fill: var(--gxde-menu-fill);
+  /* A plain blur like KWin's for DTK2 menus, light enough for the page to show
+     through; QtWebEngine 6.11 blurs about twice as hard as desktop Chromium */
+  --dsw-menu-backdrop-filter: blur(6px);
+  padding: 4px 0;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  box-shadow: var(--gxde-menu-shadow);
+}
+
+html [data-menu-material] [role='menuitem'] {
+  position: relative;
+  /* Inset and rounded to follow the panel's corners */
+  width: calc(100% - 8px);
+  min-height: 0;
+  height: 26px;
+  margin: 0 4px;
+  gap: 8px;
+  padding: 0 16px 0 6px;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--gxde-menu-text);
+}
+
+html [data-menu-material] [role='menuitem'] * {
+  color: inherit;
+}
+
+html [data-menu-material] [role='menuitem']:is(:hover, :focus-visible):not(:disabled) {
+  background: var(--gxde-menu-highlight);
+  color: rgb(255, 255, 255);
+}
+
+/* The check sits in a leading column, as DTK2 draws it. */
+html [data-menu-material]:has([role='menuitem'] > svg) [role='menuitem'] {
+  padding-left: 26px;
+}
+
+html [data-menu-material] [role='menuitem'] > svg {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  transform: translateY(-50%);
+}
+
+html [data-menu-material] [role='separator'] {
+  height: 1px;
+  margin: 3px 10px;
+  background: var(--gxde-menu-separator);
+}
+
+/* Submenus open beside their row, first item level with it. */
+html [data-menu-material] [data-menu-material] {
+  top: -5px;
+  bottom: auto;
+  left: calc(100% + 1px);
+}

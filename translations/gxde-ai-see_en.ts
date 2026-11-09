@@ -302,8 +302,8 @@ AI See</translation>
     </message>
     <message>
         <location filename="../src/chat/chatclient.cpp" line="98"/>
-        <source>只读</source>
-        <translation>Read only</translation>
+        <source>规划</source>
+        <translation>Plan</translation>
     </message>
     <message>
         <location filename="../src/chat/chatclient.cpp" line="101"/>

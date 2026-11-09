@@ -1,0 +1,76 @@
+:root {
+  --dsh-font-family-text-default: 'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei',
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --dsh-font-family-code-default: 'JetBrains Mono', 'Fira Code', 'Noto Sans Mono', 'DejaVu Sans Mono',
+    'SF Mono', Consolas, 'Liberation Mono', Menlo, 'Noto Sans CJK SC', 'PingFang SC';
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--dsw-font-family);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+body[data-ds-dark-theme] {
+  color-scheme: dark;
+}
+
+body,
+body[data-ds-dark-theme] {
+  --dsw-static-neutral-bluish-00: rgb(255, 255, 255);
+  --dsw-static-neutral-bluish-50: rgb(247, 247, 247);
+  --dsw-static-neutral-bluish-60: rgb(245, 245, 245);
+  --dsw-static-neutral-bluish-75: rgb(240, 240, 240);
+  --dsw-static-neutral-bluish-100: rgb(235, 235, 235);
+  --dsw-static-neutral-bluish-150: rgb(232, 232, 232);
+  --dsw-static-neutral-bluish-200: rgb(228, 228, 228);
+  --dsw-static-neutral-bluish-300: rgb(210, 210, 210);
+  --dsw-static-neutral-bluish-400: rgb(176, 176, 176);
+  --dsw-static-neutral-bluish-500: rgb(156, 156, 156);
+  --dsw-static-neutral-bluish-600: rgb(133, 133, 133);
+  --dsw-static-neutral-bluish-700: rgb(102, 102, 102);
+  --dsw-static-neutral-bluish-750: rgb(70, 70, 70);
+  --dsw-static-neutral-bluish-800: rgb(54, 54, 54);
+  --dsw-static-neutral-bluish-850: rgb(44, 44, 44);
+  --dsw-static-neutral-bluish-875: rgb(35, 35, 35);
+  --dsw-static-neutral-bluish-900: rgb(27, 27, 27);
+  --dsw-static-neutral-bluish-950: rgb(21, 21, 21);
+  --dsw-static-neutral-bluish-1000: rgb(17, 17, 17);
+  --gxde-row-selected: rgb(211, 235, 252);
+  --gxde-row-selected-accent: rgb(44, 167, 248);
+}
+
+body {
+  --dsw-specific-sidebar-fill: rgb(247, 247, 248);
+  --dsw-alias-interactive-bg-hover: rgba(0, 0, 0, 0.04);
+  --dsw-alias-interactive-bg-active: rgba(0, 0, 0, 0.08);
+  --dsw-alias-interactive-bg-hover-accent: rgba(0, 0, 0, 0.12);
+}
+
+body[data-ds-dark-theme] {
+  --dsw-specific-sidebar-fill: rgb(23, 23, 23);
+  --gxde-row-selected: rgb(36, 60, 77);
+}
+
+body {
+  --gxde-accent: #0b79b3;
+  --gxde-accent-hover: #096697;
+  --dsw-alias-link: var(--gxde-accent);
+}
+
+body[data-ds-dark-theme] {
+  --gxde-accent: #0c5c94;
+  --gxde-accent-hover: #0e6baa;
+  --dsw-alias-link: var(--gxde-accent);
+}

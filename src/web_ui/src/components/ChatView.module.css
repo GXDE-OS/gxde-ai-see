@@ -1,0 +1,43 @@
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(100%, 560px);
+  margin-left: auto;
+}
+
+.editorInput {
+  max-height: 240px;
+  padding: 8px 12px;
+  border-radius: var(--dsw-radius-md);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.editorButtons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.toBottom.toBottom {
+  border-radius: 8px;
+}
+
+/* Right edge on the composer card's, which reaches 16px past the messages. */
+.toBottomSlot.toBottomSlot {
+  padding-right: max(
+    var(--dsh-composer-side-clearance),
+    calc((100% - var(--dsh-chat-content-width)) / 2 - 16px)
+  );
+}
+
+.bubble.bubble {
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: var(--dsw-static-neutral-bluish-100);
+}
+
+:global(body[data-ds-dark-theme]) .bubble.bubble {
+  background: var(--dsw-static-neutral-bluish-850);
+}

@@ -1,0 +1,173 @@
+/*
+ * After LibreChat's Thinking and Reasoning parts and theme defaults
+ * (MIT, Copyright (c) 2026 LibreChat).
+ */
+.root {
+  --think-label: rgb(33, 33, 33);
+  --think-icon: rgb(66, 66, 66);
+  --think-text: rgb(66, 66, 66);
+  --think-border: rgb(227, 227, 227);
+  --think-fill: rgb(247, 247, 248);
+  font-size: 16px;
+}
+
+:global(body[data-ds-dark-theme]) .root {
+  --think-label: rgb(236, 236, 236);
+  --think-icon: rgb(205, 205, 205);
+  --think-text: rgb(205, 205, 205);
+  --think-border: rgb(33, 33, 33);
+  --think-fill: rgb(33, 33, 33);
+}
+
+.header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+  padding: 8px 0;
+}
+
+.toggle {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  min-width: 0;
+  padding: 0 40px 0 0;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--think-label);
+  font: inherit;
+  font-size: 14.4px;
+  font-weight: 500;
+  line-height: 18px;
+  text-align: start;
+  cursor: pointer;
+}
+
+.glyph {
+  position: relative;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-inline-end: 8px;
+}
+
+.bulb,
+.chevron {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  transition: opacity 150ms ease, transform 300ms ease;
+}
+
+.bulb {
+  color: var(--think-icon);
+}
+
+.chevron {
+  opacity: 0;
+}
+
+.toggle:is(:hover, :focus-visible) .bulb {
+  opacity: 0;
+}
+
+.toggle:is(:hover, :focus-visible) .chevron {
+  opacity: 1;
+}
+
+.chevron.open {
+  transform: rotate(180deg);
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copy {
+  position: absolute;
+  inset-inline-end: 0;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--think-icon);
+  opacity: 0;
+  transform: translateY(-50%);
+  transition: opacity 150ms ease;
+  cursor: pointer;
+}
+
+.root:is(:hover, :focus-within) .copy {
+  opacity: 1;
+}
+
+.copy:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.fold {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 200ms ease-out;
+}
+
+.fold.open {
+  grid-template-rows: 1fr;
+}
+
+.foldInner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.fold.open .foldInner {
+  padding-bottom: 16px;
+}
+
+.content {
+  padding: 12px;
+  border: 1px solid var(--think-border);
+  border-radius: 8px;
+  background: var(--think-fill);
+  color: var(--think-text);
+  line-height: 26px;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.peek {
+  margin: 4px 0 16px;
+  padding: 12px 16px;
+  overflow: hidden;
+  border: 1px solid var(--think-border);
+  border-radius: 16px;
+}
+
+.peekText {
+  height: 88px;
+  padding-top: 26px;
+  overflow: hidden;
+  color: var(--think-label);
+  line-height: 26px;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  mask-image: linear-gradient(to bottom, transparent, black 20px, black calc(100% - 20px), transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fold,
+  .bulb,
+  .chevron {
+    transition: none;
+  }
+}

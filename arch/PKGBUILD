@@ -20,10 +20,13 @@ depends=(
     'qt6-base'
     'qt6-declarative'
     'qt6-svg'
+    'qt6-webengine'
 )
 makedepends=(
     'cmake'
     'ninja'
+    'nodejs'
+    'npm'
     'pkgconf'
     'qt6-tools'
 )

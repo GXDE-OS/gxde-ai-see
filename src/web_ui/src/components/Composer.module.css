@@ -1,0 +1,38 @@
+.textarea {
+  display: block;
+  width: 100%;
+  margin: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  resize: none;
+  overflow: hidden;
+  field-sizing: content;
+}
+
+.heroIcon {
+  width: 34px;
+  height: 34px;
+}
+
+.notice {
+  display: block;
+  padding: 6px 4px 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.card.card {
+  border-radius: 8px;
+}
+
+.send.send {
+  border-radius: 8px;
+  background: var(--gxde-accent);
+}
+
+.send.send:hover:not(:disabled) {
+  background: var(--gxde-accent-hover);
+}

@@ -1,0 +1,392 @@
+/*
+ * Message typography after LibreChat's style.css and theme defaults
+ * (MIT, Copyright (c) 2026 LibreChat).
+ */
+.root {
+  --md-body: rgb(66, 66, 66);
+  --md-strong: rgb(33, 33, 33);
+  --md-counters: rgb(89, 89, 89);
+  --md-rule: rgb(205, 205, 205);
+  --md-rule-light: rgb(227, 227, 227);
+  --md-inline-code: rgb(227, 227, 227);
+  --md-code-bar: rgb(247, 247, 248);
+  --md-code-body: rgb(255, 255, 255);
+  --md-syntax-text: rgb(33, 33, 33);
+  --md-syntax-comment: rgb(89, 89, 89);
+  --md-syntax-meta: rgb(66, 66, 66);
+  --md-syntax-builtin: rgb(154, 103, 0);
+  --md-syntax-keyword: rgb(5, 80, 174);
+  --md-syntax-string: rgb(10, 123, 98);
+  --md-syntax-attr: rgb(154, 47, 106);
+  --md-syntax-title: rgb(180, 35, 24);
+  --md-mono: 'Roboto Mono', ui-monospace, 'Cascadia Mono', 'Liberation Mono', monospace;
+  min-width: 0;
+  color: var(--md-body);
+  font-size: 16px;
+  line-height: 22px;
+  overflow-wrap: break-word;
+}
+
+:global(body[data-ds-dark-theme]) .root {
+  --md-body: rgb(205, 205, 205);
+  --md-strong: rgb(236, 236, 236);
+  --md-counters: rgb(153, 150, 150);
+  --md-rule: rgb(57, 57, 57);
+  --md-rule-light: rgb(57, 57, 57);
+  --md-inline-code: rgb(66, 66, 66);
+  --md-code-bar: rgb(33, 33, 33);
+  --md-code-body: rgb(23, 23, 23);
+  --md-syntax-text: rgb(255, 255, 255);
+  --md-syntax-comment: rgb(144, 144, 144);
+  --md-syntax-meta: rgb(166, 166, 166);
+  --md-syntax-builtin: rgb(233, 149, 12);
+  --md-syntax-keyword: rgb(46, 149, 211);
+  --md-syntax-string: rgb(0, 166, 125);
+  --md-syntax-attr: rgb(223, 48, 121);
+  --md-syntax-title: rgb(242, 44, 61);
+}
+
+.compact {
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.root > :first-child {
+  margin-top: 0;
+}
+
+.root > :last-child {
+  margin-bottom: 0;
+}
+
+.paragraph {
+  margin: 0 0 0.5rem;
+  white-space: pre-wrap;
+}
+
+.root :where(strong) {
+  color: var(--md-strong);
+  font-weight: 600;
+}
+
+.root :where(a) {
+  color: var(--dsw-alias-link);
+  font-weight: 500;
+  text-decoration-line: underline;
+  text-underline-offset: 2px;
+}
+
+.root :where(a strong, blockquote strong, thead th strong) {
+  color: inherit;
+}
+
+.root :where(h1, h2, h3, h4, h5, h6) {
+  color: var(--md-strong);
+  font-weight: 600;
+}
+
+.root :where(h1) {
+  margin: 0.6em 0 0.4em;
+  font-size: 1.75em;
+  line-height: 1.1;
+}
+
+.root :where(h2) {
+  margin: 0.8rem 0 0.4rem;
+  font-size: 1.5em;
+  line-height: 1.1;
+}
+
+.root :where(h3) {
+  margin: 0.6rem 0 0.3rem;
+  font-size: 1.25em;
+  line-height: 1.3;
+}
+
+.root :where(h4) {
+  margin: 0.6rem 0 0.3rem;
+  font-size: 1.1em;
+  font-weight: 400;
+  line-height: 1.2;
+}
+
+.root :where(h5, h6) {
+  margin: 0.5em 0 0.3em;
+  font-size: 1em;
+}
+
+.root :is(h2, h3, h4, hr) + * {
+  margin-top: 0;
+}
+
+.root :is(h2, h3, h4, hr) + :is(.tableWrapper, .codeBlock) {
+  margin-top: 0.5rem;
+}
+
+.root :where(hr) {
+  margin: 0.8em 0;
+  border: none;
+  border-top: 1px solid var(--md-rule);
+}
+
+.root :where(hr + h1, hr + h2, hr + h3, hr + h4) {
+  margin-top: 0.4em;
+}
+
+.root :where(blockquote) {
+  margin: 1.6em 0;
+  padding-inline-start: 1rem;
+  border-inline-start: 2px solid var(--md-rule);
+  color: var(--md-strong);
+  font-weight: 500;
+}
+
+.root :where(ol, ul) {
+  margin: 1em 0;
+  padding-inline-start: 1em;
+  list-style-position: outside;
+}
+
+.root :where(li) {
+  margin: 0.5em 0;
+  padding-inline-start: 0.375em;
+}
+
+.root :where(ol) {
+  list-style-type: decimal;
+}
+
+.root :where(ol ol) {
+  list-style-type: lower-alpha;
+}
+
+.root :where(ol ol ol) {
+  list-style-type: lower-roman;
+}
+
+.root :where(ul) {
+  list-style-type: disc;
+}
+
+.root :where(ul ul ul) {
+  list-style-type: square;
+}
+
+.root :where(li)::marker {
+  color: currentColor;
+}
+
+.root :where(ol > li)::marker {
+  color: var(--md-counters);
+  font-weight: 400;
+}
+
+.root :where(ul ul > li)::marker {
+  font-size: 0.8em;
+}
+
+.root :where(ul ul ul > li)::marker {
+  font-size: 0.7em;
+}
+
+.root :where(ul ul, ul ol, ol ul, ol ol) {
+  margin: 0.75em 0;
+}
+
+.root > :where(ul, ol) > li > :first-child {
+  margin-top: 0;
+}
+
+.root > :where(ul, ol) > li > :last-child {
+  margin-bottom: 1.25em;
+}
+
+.root :where(li:has(> input[type='checkbox'])) {
+  margin: 0;
+}
+
+.root :where(code) {
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.35rem;
+  background: var(--md-inline-code);
+  color: var(--md-strong);
+  font-family: var(--md-mono);
+  font-size: 0.875em;
+  font-weight: 600;
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+.root :where(a code, h1 code, h2 code, h3 code, h4 code, blockquote code, thead th code) {
+  color: inherit;
+}
+
+.root :where(img) {
+  max-width: 100%;
+  margin: 2em 0;
+}
+
+.tableWrapper {
+  width: 100%;
+  max-width: 100%;
+  margin: 0.5rem 0 1rem;
+  padding-bottom: 0.25rem;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+
+.root :where(table) {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.875em;
+  line-height: 1.4;
+  text-align: start;
+}
+
+.root :where(th, td) {
+  padding: 0.25rem 0.75rem;
+  border: 0 solid var(--md-rule);
+  border-bottom-width: 1px;
+  border-inline-start-width: 1px;
+}
+
+.root :where(th) {
+  border-top-width: 1px;
+  background: var(--md-code-bar);
+  color: var(--md-body);
+  font-weight: 600;
+  text-align: start;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.root :where(td) {
+  vertical-align: baseline;
+}
+
+.root :where(th, td):last-child {
+  border-inline-end-width: 1px;
+}
+
+.root :where(th:first-child) {
+  border-start-start-radius: 0.75rem;
+}
+
+.root :where(th:last-child) {
+  border-start-end-radius: 0.75rem;
+}
+
+.root :where(tbody tr:last-child td:first-child) {
+  border-end-start-radius: 0.75rem;
+}
+
+.root :where(tbody tr:last-child td:last-child) {
+  border-end-end-radius: 0.75rem;
+}
+
+.root :global(.katex-display) {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.codeBlock {
+  position: relative;
+  width: 100%;
+  margin: 0.5rem 0 1rem;
+  overflow: hidden;
+  border: 1px solid var(--md-rule-light);
+  border-radius: 0.75rem;
+  font-size: 12px;
+}
+
+.codeBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 6px 6px 12px;
+  background: var(--md-code-bar);
+  color: var(--md-body);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.codeTools {
+  display: flex;
+  gap: 2px;
+}
+
+.codeButton {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.codeButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.codeBody {
+  padding: 1rem;
+  overflow: auto;
+  background: var(--md-code-body);
+}
+
+.codeBody > code {
+  display: block;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--md-syntax-text);
+  font-size: 0.85rem;
+  font-weight: 400;
+  line-height: 1.5;
+  tab-size: 4;
+  white-space: pre;
+}
+
+.codeBody > code:is(:global(.language-text), :global(.language-txt), :global(.language-plaintext), :global(.language-markdown), :global(.language-md)) {
+  white-space: pre-wrap;
+}
+
+.codeBody[data-wrapped] > code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.root :global(.hljs-comment) {
+  color: var(--md-syntax-comment);
+}
+
+.root :global(.hljs-meta) {
+  color: var(--md-syntax-meta);
+}
+
+.root :is(:global(.hljs-built_in), :global(.hljs-class) :global(.hljs-title)) {
+  color: var(--md-syntax-builtin);
+}
+
+.root :is(:global(.hljs-doctag), :global(.hljs-formula), :global(.hljs-keyword), :global(.hljs-literal)) {
+  color: var(--md-syntax-keyword);
+}
+
+.root :is(:global(.hljs-addition), :global(.hljs-attribute), :global(.hljs-meta-string), :global(.hljs-regexp), :global(.hljs-string)) {
+  color: var(--md-syntax-string);
+}
+
+.root :is(:global(.hljs-attr), :global(.hljs-number), :global(.hljs-selector-attr), :global(.hljs-selector-class), :global(.hljs-selector-pseudo), :global(.hljs-template-variable), :global(.hljs-type), :global(.hljs-variable)) {
+  color: var(--md-syntax-attr);
+}
+
+.root :is(:global(.hljs-bullet), :global(.hljs-link), :global(.hljs-selector-id), :global(.hljs-symbol), :global(.hljs-title)) {
+  color: var(--md-syntax-title);
+}

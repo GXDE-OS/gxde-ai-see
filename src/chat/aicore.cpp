@@ -313,6 +313,9 @@ QString AiCore::friendlyError(const QString &error)
         error.contains(QStringLiteral("API key is missing"))) {
         return tr("当前 AI Core 账号没有 API Key，请在「设置」里编辑该账号。");
     }
+    if (error.contains(QStringLiteral("Provider account not found"))) {
+        return tr("这个对话选的 AI Core 账号已经不在了，请在输入框下方重新选择模型。");
+    }
     if (error.contains(QStringLiteral("HTTP 401"))) {
         return tr("API Key 无效或已过期，请在「设置」里检查当前账号。");
     }
