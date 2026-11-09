@@ -358,6 +358,8 @@ interface org.gxde.Portal
 - 对话（`src/chat/chatclient.*`）：每个对话一个 `session/new`；正常追问只发新消息，
   对话历史与会话已同步的条数对不上（编辑/重试/取消/切换账号/AI Core 重启）时新建会话，
   把此前记录（最多 40 条 / 24000 字）连同人设、额外要求放进第一条 prompt。
+- 标题（`src/chat/chattitler.*`）：新对话首轮回复成功后，用同一账号开一个临时会话总结标题；
+  失败时保留首句截取的标题，用户手动改过名则不覆盖。
 - 工具确认：`session/request_permission` → 对话里的确认气泡 + 窗口不在前台时的桌面通知；
   权限模式走 `session/set_mode`（default / autoEdit / yolo / plan）。
 - 测试：`gxde-ai-see-aicoretest` 在临时 HOME 里启动真实的 gxde-ai-core，对接

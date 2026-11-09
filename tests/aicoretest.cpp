@@ -8,8 +8,8 @@
 // Covered: account save/activate over ACP, tool approval, MCP servers handed
 // to the session, session reuse vs. rebuild with a replayed history, the
 // approval modes, cancelling a turn that waits for approval, the model's
-// reasoning arriving apart from the answer and conversations answering with
-// the account and model they picked.
+// reasoning arriving apart from the answer, conversations answering with
+// the account and model they picked and titles summarized on the side.
 
 #include <QCoreApplication>
 #include <QDir>
@@ -26,6 +26,7 @@
 
 #include "aicore.h"
 #include "chatclient.h"
+#include "chattitler.h"
 #include "config.h"
 
 namespace {
@@ -43,6 +44,17 @@ struct Step
     std::function<QString(const QString &text, int permissions)> check;
     /* accountId "other" stands for the second account */
     ChatProvider provider = {};
+    /* runs right after the turn was sent */
+    std::function<void()> alongside = {};
+};
+
+struct TitleCase
+{
+    QString name;
+    QString question;
+    ChatProvider provider;
+    /* empty: no title may come back */
+    QString expected;
 };
 
 ChatMessage user(const QString &text)
@@ -147,6 +159,8 @@ int main(int argc, char *argv[])
     };
 
     ChatClient client;
+    ChatTitler titler;
+    QString alongsideTitle;
     /* reasoning of the running step, see ChatClient::thought */
     QString thoughts;
     QVector<Step> steps;
@@ -286,6 +300,60 @@ int main(int argc, char *argv[])
             return text.contains(QStringLiteral("model=fake-model")) ? QString()
                                                                      : QStringLiteral("answer: ") + text;
         } });
+    steps.append(Step{
+        QStringLiteral("a title being made leaves the running turn alone"),
+        QStringLiteral("c8"),
+        { user(QStringLiteral("which model")) },
+        QStringLiteral("default"),
+        false,
+        [&](const QString &text, int) -> QString {
+            return text.contains(QStringLiteral("model=fake-model")) &&
+                           !text.contains(QStringLiteral("的对话"))
+                       ? QString()
+                       : QStringLiteral("answer: ") + text;
+        },
+        {},
+        [&]() {
+            titler.summarize(QStringLiteral("hello"), QStringLiteral("hi"), {},
+                             [&](const QJsonValue &title, const QString &error) {
+                                 alongsideTitle = title.toString() + error;
+                             });
+        } });
+
+    const QVector<TitleCase> titleCases{
+        { QStringLiteral("the title comes back clean"), QStringLiteral("hello"), {},
+          QStringLiteral("fake-model 的对话") },
+        { QStringLiteral("the title uses the conversation's account"), QStringLiteral("hello"),
+          { QStringLiteral("other"), QStringLiteral("other-b") },
+          QStringLiteral("other-b 的对话") },
+        { QStringLiteral("a title request that calls a tool is abandoned"),
+          QStringLiteral("use a tool"), {}, QString() },
+    };
+    std::function<void(int)> nextTitle = [&](int at) {
+        if (at >= titleCases.size()) {
+            finish(alongsideTitle == QStringLiteral("fake-model 的对话"),
+                   QStringLiteral("the title made alongside a turn: ") + alongsideTitle);
+            finish(!QFile::exists(home.path() + QStringLiteral("/touched_by_title")),
+                   QStringLiteral("a title request runs no commands"));
+            app.quit();
+            return;
+        }
+        const TitleCase &item = titleCases.at(at);
+        out << "step " << item.name << "\n";
+        out.flush();
+        ChatProvider provider = item.provider;
+        if (provider.accountId == QStringLiteral("other")) {
+            provider.accountId = otherId;
+        }
+        titler.summarize(item.question, QStringLiteral("an answer"), provider,
+                         [&, at](const QJsonValue &title, const QString &error) {
+                             const TitleCase &done = titleCases.at(at);
+                             finish(title.toString() == done.expected,
+                                    QStringLiteral("%1: title=%2 error=%3")
+                                        .arg(done.name, title.toString(), error));
+                             nextTitle(at + 1);
+                         });
+    };
 
     int current = -1;
     QString text;
@@ -348,7 +416,7 @@ int main(int argc, char *argv[])
     next = [&]() {
         ++current;
         if (current >= steps.size()) {
-            app.quit();
+            nextTitle(0);
             return;
         }
         const Step &step = steps.at(current);
@@ -363,6 +431,9 @@ int main(int argc, char *argv[])
             provider.accountId = otherId;
         }
         client.send(step.conversation, step.history, provider);
+        if (step.alongside) {
+            step.alongside();
+        }
     };
 
     AiCore::instance()->saveAccount(

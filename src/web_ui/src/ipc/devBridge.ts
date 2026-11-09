@@ -154,6 +154,9 @@ export function installDevBridge() {
       const account = state.accounts.find(item => item.id === (accountId || state.activeAccountId))
       void run(id, history, `${String(account?.name ?? '?')} · ${model || String(account?.model ?? '?')}`)
     },
+    summarizeTitle: (callId: number, question: string) => {
+      reply(callId, () => `模拟标题：${question.slice(0, 10)}`)
+    },
     cancel: () => {
       if (turn === null) return
       const { id } = turn

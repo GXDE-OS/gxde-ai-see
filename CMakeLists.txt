@@ -44,6 +44,7 @@ set(GXDE_AI_SEE_SOURCES
     src/chat/aicore.cpp
     src/chat/aicoreaccounts.cpp
     src/chat/chatclient.cpp
+    src/chat/chattitler.cpp
     src/chat/webchatwindow.cpp
     src/chat/chatbridge.cpp
     src/chat/chattheme.cpp
@@ -192,6 +193,7 @@ add_executable(gxde-ai-see-aicoretest
     tests/aicoretest.cpp
     src/chat/aicore.cpp
     src/chat/chatclient.cpp
+    src/chat/chattitler.cpp
     src/config.cpp
 )
 

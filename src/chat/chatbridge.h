@@ -16,6 +16,7 @@
 #include "aicore.h"
 
 class ChatClient;
+class ChatTitler;
 class QWebEnginePage;
 
 // This class is responsible for Web UI IPC (Qt backend <---> React Web frontend)
@@ -39,6 +40,8 @@ public:
     /** Empty \a providerAccountId answers with the default account. */
     Q_INVOKABLE void send(const QString &conversationId, const QJsonArray &history,
                           const QString &providerAccountId, const QString &model);
+    Q_INVOKABLE void summarizeTitle(int callId, const QString &question, const QString &answer,
+                                    const QString &providerAccountId, const QString &model);
     Q_INVOKABLE void cancel();
     Q_INVOKABLE void forget(const QString &conversationId);
     Q_INVOKABLE void resetSessions();
@@ -96,6 +99,7 @@ private:
     void pageReset();
 
     ChatClient *m_client = nullptr;
+    ChatTitler *m_titler = nullptr;
     QString m_turnConversation;
     QString m_storePath;
     bool m_pageReady = false;

@@ -32,6 +32,7 @@ type Action =
   | { type: 'reveal' }
   | { type: 'provider'; provider: Provider }
   | { type: 'rename'; id: string; title: string }
+  | { type: 'title'; id: string; title?: string }
   | { type: 'remove'; ids: string[] }
   | { type: 'add'; conversation: Conversation }
   | { type: 'start'; conversation: Conversation }
@@ -72,7 +73,16 @@ function reduce(state: State, action: Action): State {
       return {
         ...state,
         conversations: state.conversations.map(conversation =>
-          conversation.id === action.id ? { ...conversation, title: action.title } : conversation),
+          conversation.id === action.id ? { ...conversation, title: action.title, autoTitle: false } : conversation),
+        revision: state.revision + 1,
+      }
+    case 'title':
+      return {
+        ...state,
+        conversations: state.conversations.map(conversation =>
+          conversation.id === action.id && conversation.autoTitle === true
+            ? { ...conversation, title: action.title ?? conversation.title, autoTitle: false }
+            : conversation),
         revision: state.revision + 1,
       }
     case 'remove':
@@ -200,6 +210,27 @@ export function useChat(bridge: Bridge | null): Chat {
     void bridge.saveConversations({ version: 1, conversations: state.conversations })
   }, [bridge, state])
 
+  const titling = useRef(new Set<string>())
+  useEffect(() => {
+    if (bridge === null) return
+    for (const { id, autoTitle, messages, provider } of state.conversations) {
+      if (autoTitle !== true || id === state.running || titling.current.has(id)) continue
+      const [question, reply] = messages.slice(-2)
+      if (question?.role !== 'user' || reply?.role !== 'assistant') continue
+      // Interrupted or failed: the next good reply gets its turn.
+      if (reply.time === undefined || reply.stopReason !== undefined || reply.error !== undefined || reply.content.trim() === '') continue
+      titling.current.add(id)
+      void bridge.summarizeTitle(question.content, reply.content, provider).then(
+        (title) => {
+          dispatch({ type: 'title', id, title })
+        },
+        () => {
+          dispatch({ type: 'title', id })
+        },
+      )
+    }
+  }, [bridge, state.conversations, state.running])
+
   const current = state.conversations.find(conversation => conversation.id === state.currentId)
 
   // Answers the last message of history, which must be the user's.
@@ -217,6 +248,7 @@ export function useChat(bridge: Bridge | null): Chat {
     const base: Conversation = current ?? {
       id: crypto.randomUUID(),
       title: title ?? content.split('\n', 1)[0]!.slice(0, 24),
+      autoTitle: true,
       updatedAt: time,
       messages: [],
       ...(state.draftProvider === undefined ? {} : { provider: state.draftProvider }),

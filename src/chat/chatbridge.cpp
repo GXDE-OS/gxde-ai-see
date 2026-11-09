@@ -4,6 +4,7 @@
 #include "chatbridge.h"
 
 #include "chatclient.h"
+#include "chattitler.h"
 #include "config.h"
 
 #include <QDir>
@@ -47,6 +48,7 @@ QString readResource(const QString &path)
 ChatBridge::ChatBridge(QObject *parent)
     : QObject(parent)
     , m_client(new ChatClient(this))
+    , m_titler(new ChatTitler(this))
     , m_storePath(Config::instance()->dataDir() + QStringLiteral("/chat.json"))
 {
     /* ChatClient's signals belong to the running turn; tag them with its
@@ -169,6 +171,12 @@ void ChatBridge::send(const QString &conversationId, const QJsonArray &history,
     m_turnConversation = conversationId;
     Q_EMIT busyChanged();
     m_client->send(conversationId, messages, { providerAccountId, model });
+}
+
+void ChatBridge::summarizeTitle(int callId, const QString &question, const QString &answer,
+                                const QString &providerAccountId, const QString &model)
+{
+    m_titler->summarize(question, answer, { providerAccountId, model }, replyTo(callId));
 }
 
 void ChatBridge::cancel()

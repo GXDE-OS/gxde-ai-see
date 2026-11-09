@@ -44,6 +44,8 @@ export interface Conversation {
   messages: ChatMessage[]
   /** Unset: AI Core's default account. */
   provider?: Provider
+  /** The title is a stand-in, waiting for the model to summarize the first reply. */
+  autoTitle?: boolean
 }
 
 /** chat.json, shared with the earlier native window. */
@@ -145,6 +147,7 @@ interface RawBridge extends RawSignals {
   ready: QtMethod<[]>
   modes: QtMethod<[], ChatMode[]>
   send: QtMethod<[conversationId: string, history: ChatMessage[], providerAccountId: string, model: string]>
+  summarizeTitle: QtMethod<[callId: number, question: string, answer: string, providerAccountId: string, model: string]>
   cancel: QtMethod<[]>
   forget: QtMethod<[conversationId: string]>
   resetSessions: QtMethod<[]>
@@ -232,6 +235,13 @@ export class Bridge {
    */
   send(conversationId: string, history: ChatMessage[], provider?: Provider): void {
     this.raw.send(conversationId, history, provider?.accountId ?? '', provider?.model ?? '')
+  }
+
+  /** Rejects when the model gave no usable title. */
+  summarizeTitle(question: string, answer: string, provider?: Provider): Promise<string> {
+    return this.request((id) => {
+      this.raw.summarizeTitle(id, question, answer, provider?.accountId ?? '', provider?.model ?? '')
+    }) as Promise<string>
   }
 
   cancel(): void {
