@@ -1,3 +1,9 @@
+gxde-ai-see (1.0.2~beta1) unstable; urgency=medium
+
+  * 使用React重写前端
+
+ -- CharOfString <root@charofstring.cc>  Sun, 08 Nov 2026 20:10:03 -0600
+
 gxde-ai-see (1.0.1~beta1) unstable; urgency=medium
 
   * 使用GXDE AI Core作为后端

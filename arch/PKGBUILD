@@ -1,7 +1,7 @@
 # Maintainer: CharOfString <root@charofstring.cc>
 
 pkgname=gxde-ai-see-git
-pkgver=1.0.1
+pkgver=1.0.2
 pkgrel=1
 pkgdesc='GXDE desktop AI assistant and drag-and-drop hub'
 arch=('x86_64' 'aarch64')
