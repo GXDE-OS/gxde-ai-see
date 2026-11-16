@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import clsx from 'clsx'
-import { useDrop } from './chat/drop'
+import { attachmentLine, useDrop } from './chat/drop'
 import { t } from './chat/strings'
 import { useAccounts, useModes } from './chat/useBackend'
 import { useChat } from './chat/useChat'
@@ -8,6 +8,7 @@ import { ModelSelect, ModeSelect } from './components/ComposerTools'
 import { ConversationPanel } from './components/ConversationPanel'
 import { SettingsDialog } from './components/SettingsDialog'
 import { Sidebar } from './components/Sidebar'
+import type { Attachment } from './ipc/bridge'
 import { useBridge } from './ipc/useBridge'
 import frame from './vendor/dsh/layout/AppFrame.module.css'
 import local from './App.module.css'
@@ -55,6 +56,17 @@ export function App() {
     setFocusRequest(n => n + 1)
   }, [])
   useDrop(bridge, open, insert)
+
+  /** The composer's + button: pick local files and add them to the message. */
+  const pickAttachments = useCallback(() => {
+    if (bridge === null) return
+    void bridge.pickAttachments().then((picked: Attachment[]) => {
+      if (picked.length === 0) return
+      insert(picked.map(attachmentLine).join('\n'))
+    }, () => {
+      // A cancelled or failed dialog just leaves the message as it was.
+    })
+  }, [bridge, insert])
 
   useEffect(() => {
     if (bridge === null) return
@@ -128,6 +140,7 @@ export function App() {
           )}
           notice={notice}
           focusRequest={focusRequest}
+          onAttach={bridge === null ? undefined : pickAttachments}
           onSend={send}
           onStop={chat.stop}
           onAnswer={chat.answer}

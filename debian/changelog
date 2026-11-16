@@ -1,3 +1,13 @@
+gxde-ai-see (1.0.2~beta3) unstable; urgency=medium
+
+  * 对话输入框新增「+」按钮：手动选择文件 / 图片加入消息，作为附件发给小埃
+    （复用拖拽的 [文件]/[图片] 路径格式，AI Core 直接读取）
+  * 对话设置新增「传送门」分区：「传送门快捷入口」开关，关闭后拖拽不再
+    自动唤起传送门面板；显式打开（应用菜单 / --show）与暂存区常显不受影响
+  * 补齐英文翻译（ChatBridge 附件选择等）
+
+ -- shenmo <shenmo@spark-app.store>  Mon, 16 Nov 2026 21:50:00 +0800
+
 gxde-ai-see (1.0.2~beta2) unstable; urgency=medium
 
   * 传送门面板改为紧凑布局：宽 500→420（仅暂存区时 320），空置时

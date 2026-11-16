@@ -320,6 +320,19 @@
     </message>
 </context>
 <context>
+    <name>ChatBridge</name>
+    <message>
+        <location filename="../src/chat/chatbridge.cpp" line="315"/>
+        <source>选择附件</source>
+        <translation>Choose attachments</translation>
+    </message>
+    <message>
+        <location filename="../src/chat/chatbridge.cpp" line="266"/>
+        <source>MCP 配置不是合法的 JSON 数组</source>
+        <translation>The MCP configuration is not a valid JSON array</translation>
+    </message>
+</context>
+<context>
     <name>ChatMessageList</name>
     <message>
         <location filename="../src/chat/chatview.cpp" line="309"/>

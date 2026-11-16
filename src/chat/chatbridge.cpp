@@ -9,8 +9,11 @@
 
 #include <QDir>
 #include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QImage>
 #include <QJsonDocument>
+#include <QMimeDatabase>
 #include <QPointer>
 #include <QSaveFile>
 #include <QUuid>
@@ -256,7 +259,9 @@ QJsonObject ChatBridge::settings() const
     return { { QStringLiteral("mcpServers"),
                config->get(QStringLiteral("chat/mcpServers")).toString() },
              { QStringLiteral("systemPrompt"),
-               config->get(QStringLiteral("chat/systemPrompt")).toString() } };
+               config->get(QStringLiteral("chat/systemPrompt")).toString() },
+             { QStringLiteral("portalEnabled"),
+               config->getBool(QStringLiteral("portal/enabled"), true) } };
 }
 
 QString ChatBridge::saveSettings(const QJsonObject &settings)
@@ -272,6 +277,11 @@ QString ChatBridge::saveSettings(const QJsonObject &settings)
                          config->get(QStringLiteral("chat/systemPrompt")).toString() != systemPrompt;
     config->set(QStringLiteral("chat/mcpServers"), mcp);
     config->set(QStringLiteral("chat/systemPrompt"), systemPrompt);
+    /* 传送门快捷入口：拖拽时是否唤起面板（App::onDragStarted 每次实时读取） */
+    if (settings.contains(QStringLiteral("portalEnabled"))) {
+        config->set(QStringLiteral("portal/enabled"),
+                    settings.value(QStringLiteral("portalEnabled")).toBool(true));
+    }
     config->sync();
 
     /* sessions get MCP servers and instructions when they start */
@@ -300,6 +310,27 @@ QString ChatBridge::saveImage(const QString &base64)
                          QUuid::createUuid().toString(QUuid::WithoutBraces) +
                          QStringLiteral(".png");
     return image.save(path) ? path : QString();
+}
+
+void ChatBridge::pickAttachments(int callId)
+{
+    auto *window = qobject_cast<QWidget *>(parent());
+    const QStringList files = QFileDialog::getOpenFileNames(
+        window, tr("选择附件"), QDir::homePath());
+
+    /* The page only needs a line per file: AI Core reads the path itself. */
+    QJsonArray attachments;
+    const QMimeDatabase mimeDatabase;
+    for (const QString &file : files) {
+        const QFileInfo info(file);
+        const QMimeType mime = mimeDatabase.mimeTypeForFile(info);
+        attachments.append(QJsonObject{
+            { QStringLiteral("path"), info.absoluteFilePath() },
+            { QStringLiteral("name"), info.fileName() },
+            { QStringLiteral("image"), mime.name().startsWith(QLatin1String("image/")) },
+        });
+    }
+    replyTo(callId)(attachments, QString());
 }
 
 void ChatBridge::revealTurn()

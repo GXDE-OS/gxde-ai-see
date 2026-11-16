@@ -301,16 +301,18 @@ function Accounts({ bridge, source }: { bridge: Bridge; source: AccountsSource }
 export function SettingsDialog({ bridge, accounts, onClose }: { bridge: Bridge; accounts: AccountsSource; onClose: () => void }) {
   const [mcpServers, setMcpServers] = useState<string | null>(null)
   const [systemPrompt, setSystemPrompt] = useState('')
+  const [portalEnabled, setPortalEnabled] = useState(true)
   const [problem, setProblem] = useState('')
   useEffect(() => {
     void bridge.settings().then((settings) => {
       setMcpServers(settings.mcpServers)
       setSystemPrompt(settings.systemPrompt)
+      setPortalEnabled(settings.portalEnabled)
     })
   }, [bridge])
   const save = () => {
     if (mcpServers === null) return
-    void bridge.saveSettings({ mcpServers, systemPrompt }).then((error) => {
+    void bridge.saveSettings({ mcpServers, systemPrompt, portalEnabled }).then((error) => {
       if (error === '') onClose()
       else setProblem(error)
     })
@@ -331,6 +333,19 @@ export function SettingsDialog({ bridge, accounts, onClose }: { bridge: Bridge; 
       )}
     >
       <Accounts bridge={bridge} source={accounts} />
+      <section className={css.section}>
+        <h3 className={css.heading}>{t.portalSection}</h3>
+        <label className={css.checkRow}>
+          <input
+            type="checkbox"
+            checked={portalEnabled}
+            disabled={mcpServers === null}
+            onChange={(event) => { setPortalEnabled(event.target.checked) }}
+          />
+          <span>{t.portalShortcut}</span>
+        </label>
+        <p className={css.hint}>{t.portalShortcutHint}</p>
+      </section>
       <section className={css.section}>
         <Field label={t.mcpServers}>
           {id => (

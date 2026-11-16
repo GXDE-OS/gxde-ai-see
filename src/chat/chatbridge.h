@@ -53,12 +53,14 @@ public:
     Q_INVOKABLE void saveAccount(int callId, const QJsonObject &account, const QString &apiKey);
     Q_INVOKABLE void deleteAccount(int callId, const QString &id);
     Q_INVOKABLE void activateAccount(int callId, const QString &id, const QString &model);
-    /** {mcpServers, systemPrompt}, the chat settings outside AI Core. */
+    /** {mcpServers, systemPrompt, portalEnabled}, the chat settings outside AI Core. */
     Q_INVOKABLE QJsonObject settings() const;
     /** Empty on success, otherwise why nothing was saved. */
     Q_INVOKABLE QString saveSettings(const QJsonObject &settings);
     /** Store a dropped image (base64) for the model to read; returns its path. */
     Q_INVOKABLE QString saveImage(const QString &base64);
+    /** Let the user pick local files; answers with [{path, name, image}]. */
+    Q_INVOKABLE void pickAttachments(int callId);
 
     /** Bring the conversation of the running turn into view. */
     void revealTurn();

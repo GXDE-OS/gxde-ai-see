@@ -37,6 +37,14 @@ export interface Provider {
   model: string
 }
 
+/** A local file the user picked for the message. */
+export interface Attachment {
+  /** Absolute path on this machine. */
+  path: string
+  name: string
+  image: boolean
+}
+
 export interface Conversation {
   id: string
   title: string
@@ -125,6 +133,8 @@ export interface ChatSettings {
   /** JSON array text, as the user wrote it. */
   mcpServers: string
   systemPrompt: string
+  /** 拖拽时是否唤起传送门面板（「传送门快捷入口」）。 */
+  portalEnabled: boolean
 }
 
 /* ---- the raw QWebChannel object ---- */
@@ -162,6 +172,7 @@ interface RawBridge extends RawSignals {
   settings: QtMethod<[], ChatSettings>
   saveSettings: QtMethod<[settings: ChatSettings], string>
   saveImage: QtMethod<[base64: string], string>
+  pickAttachments: QtMethod<[callId: number], Attachment[]>
 }
 
 declare global {
@@ -304,6 +315,13 @@ export class Bridge {
   /** Store image bytes (base64) in the cache; resolves to the path, '' on failure. */
   saveImage(base64: string): Promise<string> {
     return this.invoke(this.raw.saveImage, base64)
+  }
+
+  /** Let the user pick local files; resolves to [] when the dialog was cancelled. */
+  pickAttachments(): Promise<Attachment[]> {
+    return this.request((id) => {
+      this.raw.pickAttachments(id)
+    }) as Promise<Attachment[]>
   }
 
   /** Methods that return their value directly (through the QWebChannel callback). */

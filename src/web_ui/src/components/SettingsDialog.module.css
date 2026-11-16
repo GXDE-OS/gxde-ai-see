@@ -24,6 +24,23 @@
   font-weight: 500;
 }
 
+/* A checkbox + its label on one line (传送门快捷入口). */
+.checkRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.checkRow input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--gxde-accent);
+}
+
 .accounts {
   display: flex;
   flex-direction: column;

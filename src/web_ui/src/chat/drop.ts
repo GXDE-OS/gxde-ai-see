@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import type { Bridge } from '../ipc/bridge'
+import type { Attachment, Bridge } from '../ipc/bridge'
 import { t } from './strings'
 
 /** A dropped URL as a line for the model: local files by path. */
@@ -11,6 +11,11 @@ export function urlLine(url: string): string {
   catch {
     return url
   }
+}
+
+/** A file picked with the composer's + button, as a line for the model. */
+export function attachmentLine(attachment: Attachment): string {
+  return attachment.image ? t.droppedImage(attachment.path) : t.droppedFile(attachment.path)
 }
 
 function readBase64(file: File): Promise<string> {

@@ -214,7 +214,7 @@ export function installDevBridge() {
         return {}
       })
     },
-    settings: (done: Callback) => done?.(read<ChatSettings>(SETTINGS, { mcpServers: '', systemPrompt: '' })),
+    settings: (done: Callback) => done?.(read<ChatSettings>(SETTINGS, { mcpServers: '', systemPrompt: '', portalEnabled: true })),
     saveSettings: (settings: ChatSettings, done: Callback) => {
       const mcp = settings.mcpServers.trim()
       let valid = mcp === ''
@@ -228,6 +228,11 @@ export function installDevBridge() {
       done?.(valid ? '' : 'MCP 配置不是合法的 JSON 数组')
     },
     saveImage: (_base64: string, done: Callback) => done?.(`/tmp/gxde-dev-${crypto.randomUUID()}.png`),
+    pickAttachments: (callId: number) => {
+      reply(callId, () => [
+        { path: '/tmp/gxde-dev-attachment.pdf', name: 'gxde-dev-attachment.pdf', image: false },
+      ])
+    },
   }
   const signals = [
     'busyChanged', 'modeChanged', 'delta', 'thought', 'toolCall', 'permissionRequested', 'permissionDropped', 'finished',

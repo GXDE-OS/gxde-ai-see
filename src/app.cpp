@@ -152,6 +152,12 @@ void App::onDragStarted()
         return;
     }
 
+    /* 对话设置里关掉「传送门快捷入口」后，拖拽不再唤起面板/传送门。
+     * 显式打开的面板（--show、菜单）和暂存区常显不受影响。 */
+    if (!Config::instance()->getBool(QStringLiteral("portal/enabled"), true)) {
+        return;
+    }
+
     m_dragging = true;
     if (m_panel) {
         m_panel->setDragging(true);

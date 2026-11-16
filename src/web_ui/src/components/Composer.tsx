@@ -19,6 +19,13 @@ const STOP_GLYPH = (
   </svg>
 )
 
+/* The attach control (figma + on the composer's action row). */
+const ADD_GLYPH = (
+  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden>
+    <path d="M8 3.2v9.6M3.2 8h9.6" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+  </svg>
+)
+
 const keepFocus = (event: MouseEvent) => {
   event.preventDefault()
 }
@@ -32,13 +39,15 @@ export interface ComposerProps {
   onStop?: () => void
   /** Pickers on the left of the action row. */
   tools?: ReactNode
+  /** Pick local files for the message (the + button). */
+  onAttach?: (() => void) | undefined
   /** One line under the card. */
   notice?: string | undefined
   /** Bumped to focus the input with the caret at the end. */
   focusRequest?: number
 }
 
-export function Composer({ variant, text, onTextChange, running = false, onSend, onStop, tools, notice, focusRequest = 0 }: ComposerProps) {
+export function Composer({ variant, text, onTextChange, running = false, onSend, onStop, tools, onAttach, notice, focusRequest = 0 }: ComposerProps) {
   const textarea = useRef<HTMLTextAreaElement>(null)
   useEffect(() => {
     const input = textarea.current
@@ -90,7 +99,21 @@ export function Composer({ variant, text, onTextChange, running = false, onSend,
           </div>
         </div>
         <div className={ib.row}>
-          <div className={ib.tools}>{tools}</div>
+          <div className={ib.tools}>
+            {onAttach !== undefined && (
+              <button
+                type="button"
+                className={ib.add}
+                aria-label={t.attach}
+                title={t.attachHint}
+                onMouseDown={keepFocus}
+                onClick={onAttach}
+              >
+                {ADD_GLYPH}
+              </button>
+            )}
+            {tools}
+          </div>
           <div className={ib.trailing}>
             {running
               ? (

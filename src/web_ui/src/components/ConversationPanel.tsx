@@ -70,6 +70,8 @@ export interface ConversationPanelProps {
   tools: ReactNode
   notice: string | undefined
   focusRequest: number
+  /** The composer's + button: pick files to attach. */
+  onAttach?: (() => void) | undefined
   onSend: ((text: string) => void) | undefined
   onStop: () => void
   onAnswer: (key: string, optionId: string) => void
@@ -79,7 +81,7 @@ export interface ConversationPanelProps {
 }
 
 export function ConversationPanel({
-  conversation, running, busy, activityAt, approval, draft, onDraftChange, tools, notice, focusRequest, onSend, onStop, onAnswer, onRetry, onEdit, onFork,
+  conversation, running, busy, activityAt, approval, draft, onDraftChange, tools, notice, focusRequest, onAttach, onSend, onStop, onAnswer, onRetry, onEdit, onFork,
 }: ConversationPanelProps) {
   const hero = conversation === undefined
   const phase = hero ? 'hero' : 'active'
@@ -150,6 +152,7 @@ export function ConversationPanel({
                       tools={tools}
                       notice={notice}
                       focusRequest={focusRequest}
+                      onAttach={onAttach}
                     />
                   )}
             </div>
