@@ -276,11 +276,9 @@
 <context>
     <name>AskTile</name>
     <message>
-        <location filename="../src/qml/ContentFactory.qml" line="116"/>
-        <source>问问
-小埃同学</source>
-        <translation>Ask
-AI See</translation>
+        <location filename="../src/qml/ContentFactory.qml" line="88"/>
+        <source>问问小埃同学</source>
+        <translation>Ask AI See</translation>
     </message>
     <message>
         <location filename="../src/qml/ContentFactory.qml" line="117"/>
@@ -630,6 +628,11 @@ Read only: only tools that read</translation>
         <translation>Drop onto an action</translation>
     </message>
     <message>
+        <location filename="../src/qml/ContentFactory.qml" line="61"/>
+        <source>拖到这里，按类型处理</source>
+        <translation>Drop here to process by type</translation>
+    </message>
+    <message>
         <location filename="../src/qml/ContentFactory.qml" line="49"/>
         <source>内容工厂</source>
         <translation>Content Factory</translation>
@@ -875,19 +878,24 @@ to process by type</translation>
         <translation>About</translation>
     </message>
     <message>
-        <location filename="../src/qml/PortalPanel.qml" line="325"/>
-        <source>退出</source>
-        <translation>Quit</translation>
+        <location filename="../src/qml/PortalPanel.qml" line="329"/>
+        <source>退出（停止后台保活）</source>
+        <translation>Quit (stop keep-alive)</translation>
     </message>
     <message>
-        <location filename="../src/ui/portalpanel.cpp" line="971"/>
-        <source>已开启开机自启与保活</source>
-        <translation>Startup and keep-alive enabled</translation>
+        <location filename="../src/ui/portalpanel.cpp" line="977"/>
+        <source>这个版本没有安装 k9 保活服务，请升级 gxde-ai-see</source>
+        <translation>This build does not ship the k9 keep-alive service; please upgrade gxde-ai-see</translation>
     </message>
     <message>
-        <location filename="../src/ui/portalpanel.cpp" line="971"/>
-        <source>已关闭开机自启与保活</source>
-        <translation>Startup and keep-alive disabled</translation>
+        <location filename="../src/ui/portalpanel.cpp" line="992"/>
+        <source>已开启开机自启与后台保活</source>
+        <translation>Autostart and keep-alive enabled</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/portalpanel.cpp" line="992"/>
+        <source>已关闭开机自启与后台保活</source>
+        <translation>Autostart and keep-alive disabled</translation>
     </message>
     <message>
         <location filename="../src/ui/portalpanel.cpp" line="994"/>

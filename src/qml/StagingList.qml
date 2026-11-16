@@ -78,13 +78,16 @@ Item {
 
   Label {
     anchors.fill: parent
-    anchors.margins: 12
+    anchors.leftMargin: 12
+    anchors.rightMargin: 12
+    anchors.topMargin: 4
+    anchors.bottomMargin: 4
     visible: view.count === 0
     horizontalAlignment: Text.AlignHCenter
     verticalAlignment: Text.AlignVCenter
     wrapMode: Text.WordWrap
     text: qsTranslate("StagingView", "把文件、文字或图片拖到这里")
-    font.pixelSize: 12
+    font.pixelSize: 11
     color: Qt.rgba(1, 1, 1, 105 / 255)
   }
 

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(gxde-ai-see
-    VERSION 1.0.0
+    VERSION 1.0.2
     DESCRIPTION "GXDE AI See - 小埃同学"
     LANGUAGES C CXX
 )
@@ -241,5 +241,8 @@ install(TARGETS gxde-ai-see RUNTIME DESTINATION bin)
 install(FILES data/gxde-ai-see.desktop data/gxde-ai-see-todo.desktop
         data/gxde-ai-see-portal.desktop DESTINATION share/applications)
 install(DIRECTORY data/icons/hicolor/ DESTINATION share/icons/hicolor)
+# 后台保活服务：gxde-k9 登录后按 .slimy 拉起 `gxde-ai-see --daemon`，
+# 只有用户退出应用或取消「开机自启与后台保活」时才会停。
+install(FILES data/gxde-k9/slimy/gxde-ai-see.slimy DESTINATION share/gxde-k9/slimy)
 
 include(GNUInstallDirs)

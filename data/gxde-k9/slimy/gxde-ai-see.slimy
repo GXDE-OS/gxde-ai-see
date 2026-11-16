@@ -1,0 +1,50 @@
+#!/bin/bash
+# SPDX-FileCopyrightText: 2026 GXDE OS Team
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# GXDE AI See 的 gxde-k9 保活服务。
+#
+# k9 每 5 秒执行一次本目录下的 .slimy 脚本；本脚本只在后台守护进程不在时把
+# `gxde-ai-see --daemon` 拉起来，所以装好包、登录桌面后小埃同学就在后台待命。
+#
+# 用户主动关闭时才停：
+#   * 面板菜单「退出（停止后台保活）」或「开机自启与后台保活」取消勾选，
+#     会创建 $XDG_CONFIG_HOME/GXDE/gxde-ai-see/k9-disabled；
+#   * 本脚本见到这个标记就静默退出，直到用户重新勾选。
+#
+# 注意：k9 用 `out=$(bash "$slimy_file" 2>&1)` 收集输出，子进程必须重定向
+# stdin/stdout/stderr，否则 k9 会一直等着管道关闭。
+
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/GXDE/gxde-ai-see"
+if [[ -e "$CONFIG_DIR/k9-disabled" ]]; then
+    exit 0
+fi
+
+APP="/usr/bin/gxde-ai-see"
+if [[ ! -x "$APP" ]]; then
+    exit 0
+fi
+
+# k9 通过环境变量给出 PID_DIR（每个 UID 一个目录）；直接运行脚本时自行推导。
+PID_DIR="${PID_DIR:-/tmp/GXDE/gxde-k9/${UID}/}"
+mkdir -p "$PID_DIR" 2>/dev/null || PID_DIR="${XDG_RUNTIME_DIR:-/tmp}/GXDE/gxde-k9"
+mkdir -p "$PID_DIR" 2>/dev/null || exit 0
+PID_FILE="$PID_DIR/gxde-ai-see.pid"
+
+# 已经在跑（无论是不是 k9 拉起的）就不重复启动：第二次启动只会把消息转给
+# 已有实例然后退出，没有必要。
+RUNNING_PID=$(pgrep -u "$UID" -f '^([^ ]*/)?gxde-ai-see( |$)' 2>/dev/null | head -n 1)
+if [[ -n "$RUNNING_PID" ]]; then
+    echo "$RUNNING_PID" > "$PID_FILE"
+    exit 0
+fi
+
+echo "[gxde-ai-see] 后台进程未运行，正在启动"
+"$APP" --daemon </dev/null >/dev/null 2>&1 &
+NEW_PID=$!
+if [[ -n "$NEW_PID" ]] && [[ -e "/proc/$NEW_PID" ]]; then
+    echo "$NEW_PID" > "$PID_FILE"
+else
+    echo "[gxde-ai-see] 启动失败" >&2
+    exit 1
+fi

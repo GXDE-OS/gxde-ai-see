@@ -1,5 +1,20 @@
 # 更新日志
 
+## 1.0.2~beta2 — 2026-11-16
+
+- 传送门面板收紧体积，减少遮挡：拖拽面板 420×184（原 500×373），
+  暂存区有货时常显 320 宽的列表面板；空暂存区只留一行提示，
+  内容工厂空闲态收成一行、拖入内容时才展开动作（4 列网格）
+  · shenmo <shenmo@spark-app.store>
+- 面板尺寸随暂存区条数 / 内容工厂动作数自适应，启动即落在紧凑形态
+  · shenmo <shenmo@spark-app.store>
+- 安装后随包提供系统级 gxde-k9 保活服务
+  （`/usr/share/gxde-k9/slimy/gxde-ai-see.slimy`）：登录后拉起
+  `gxde-ai-see --daemon`，崩溃/被杀后 5 秒内自动恢复；只有用户选择
+  「退出（停止后台保活）」或取消勾选时才停，状态记在
+  `~/.config/GXDE/gxde-ai-see/k9-disabled`；旧版用户目录 `.slimy` 自动迁移
+  · shenmo <shenmo@spark-app.store>
+
 ## 1.0.0~beta3 — 2026-10-31
 
 - 对话窗口支持浅色 / 深色主题跟随 DTK：新增 `ChatTheme` 双套调色板，

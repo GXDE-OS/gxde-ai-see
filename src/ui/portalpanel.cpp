@@ -52,10 +52,24 @@ bool isWayland()
     return QGuiApplication::platformName().startsWith(QLatin1String("wayland"));
 }
 
-QString slimyPath()
+QString k9SystemSlimyPath()
+{
+    return QStringLiteral("/usr/share/gxde-k9/slimy/gxde-ai-see.slimy");
+}
+
+/* 1.0.2 and older kept their own copy of the service in the user directory */
+QString k9UserSlimyPath()
 {
     return QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) +
            QStringLiteral("/GXDE/gxde-k9/slimy/gxde-ai-see.slimy");
+}
+
+/* the user's "do not keep me alive" switch, created by 「退出」 or by
+ * un-checking 「开机自启与后台保活」 */
+QString k9DisabledPath()
+{
+    return QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation) +
+           QStringLiteral("/k9-disabled");
 }
 
 } // namespace
@@ -71,6 +85,11 @@ PortalPanel::PortalPanel(StagingModel *model, QObject *parent)
     m_manualListHeight = config->getInt(QStringLiteral("panel/listHeight"), 0);
     m_fixedPosition = config->getBool(QStringLiteral("panel/fixedPosition"), true);
     m_fixedSize = config->getBool(QStringLiteral("panel/fixedSize"), false);
+
+    /* The package now ships the k9 service system-wide; drop the copy older
+     * versions created per user, or k9 would see the daemon twice.  The
+     * on/off choice lives in k9DisabledPath() for both sides. */
+    QFile::remove(k9UserSlimyPath());
 
     /* hover the portal this long before the windows get out of the way */
     m_portalTimer = new QTimer(this);
@@ -155,6 +174,9 @@ PortalPanel::PortalPanel(StagingModel *model, QObject *parent)
 
     setupWindow();
     refreshLayout();
+    /* 暂存区里上次留下的条目：启动时就直接落到「只显示列表」的窄面板，
+     * 不要一上来就占满整块面板，等用户拖拽时再展开 */
+    updateMode();
 }
 
 PortalPanel::~PortalPanel()
@@ -255,7 +277,8 @@ void PortalPanel::refreshLayout()
     const int maxListHeight = qMax(120, screenHeight() / 3);
     const int contentHeight = m_model->count() * kRowHeight + 8;
     const int wanted = m_manualListHeight > 0 ? m_manualListHeight : contentHeight;
-    const int listHeight = qBound(140, wanted, maxListHeight);
+    /* 空暂存区只留一行提示：面板不该为没装的条目预留 140px */
+    const int listHeight = m_model->count() == 0 ? 36 : qBound(kRowHeight, wanted, maxListHeight);
     if (listHeight != m_listHeight) {
         m_listHeight = listHeight;
         Q_EMIT listHeightChanged();
@@ -938,37 +961,35 @@ void PortalPanel::setHideOnFullscreen(bool hide)
 
 bool PortalPanel::autostart() const
 {
-    return QFile::exists(slimyPath());
+    /* 安装包自带 k9 保活服务；k9DisabledPath() 是用户自己的开关 */
+    return QFile::exists(k9SystemSlimyPath()) && QFile::exists(QStringLiteral("/usr/bin/gxde-k9"))
+           && !QFile::exists(k9DisabledPath());
 }
 
 void PortalPanel::setAutostart(bool enable)
 {
-    const QString slimy = slimyPath();
-    QDir().mkpath(QFileInfo(slimy).absolutePath());
+    const QString marker = k9DisabledPath();
+    QDir().mkpath(QFileInfo(marker).absolutePath());
+
     if (enable) {
-        QFile file(slimy);
-        if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-            QTextStream out(&file);
-            out << "#!/bin/bash\n"
-                   "PID_DIR=\"${PID_DIR:-/tmp/GXDE/gxde-k9/}\"\n"
-                   "mkdir -p \"$PID_DIR\"\n"
-                   "PID_FILE=\"$PID_DIR/gxde-ai-see.pid\"\n"
-                   "if [ -f \"$PID_FILE\" ]; then\n"
-                   "  PID=$(cat \"$PID_FILE\" 2>/dev/null)\n"
-                   "  [ -n \"$PID\" ] && [ -e \"/proc/$PID\" ] && exit 0\n"
-                   "  rm -f \"$PID_FILE\"\n"
-                   "fi\n"
-                   "/usr/bin/gxde-ai-see --daemon >/dev/null 2>&1 &\n"
-                   "echo $! > \"$PID_FILE\"\n";
-            file.close();
-            file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner |
-                                QFileDevice::ExeOwner);
+        if (!QFile::exists(k9SystemSlimyPath())) {
+            Q_EMIT settingsChanged();
+            Q_EMIT toast(tr("这个版本没有安装 k9 保活服务，请升级 gxde-ai-see"));
+            return;
         }
+        QFile::remove(marker);
     } else {
-        QFile::remove(slimy);
+        QFile file(marker);
+        if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            file.write("# created by gxde-ai-see: the user switched the k9 service off\n");
+        }
     }
+
+    /* older versions kept their own copy of the service in the user directory */
+    QFile::remove(k9UserSlimyPath());
+
     Q_EMIT settingsChanged();
-    Q_EMIT toast(enable ? tr("已开启开机自启与保活") : tr("已关闭开机自启与保活"));
+    Q_EMIT toast(enable ? tr("已开启开机自启与后台保活") : tr("已关闭开机自启与后台保活"));
 }
 
 void PortalPanel::resetPosition()
@@ -996,6 +1017,14 @@ void PortalPanel::showAbout()
 
 void PortalPanel::quit()
 {
+    /* 用户选择「退出」：同时关掉 k9 保活，免得几秒后又被拉起来。
+     * 菜单里的「开机自启与后台保活」可以重新开启。 */
+    const QString marker = k9DisabledPath();
+    QDir().mkpath(QFileInfo(marker).absolutePath());
+    QFile file(marker);
+    if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        file.write("# created by gxde-ai-see: the user quit the app\n");
+    }
     QCoreApplication::quit();
 }
 

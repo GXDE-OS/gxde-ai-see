@@ -181,7 +181,7 @@ private:
     int m_rightMargin = 16;
     int m_bottomMargin = 16;
     int m_manualListHeight = 0;
-    int m_listHeight = 140;
+    int m_listHeight = 36;
     bool m_stagingOnly = false;
     bool m_dragging = false;
     bool m_portalSuppressed = false;

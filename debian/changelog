@@ -1,3 +1,17 @@
+gxde-ai-see (1.0.2~beta2) unstable; urgency=medium
+
+  * 传送门面板改为紧凑布局：宽 500→420（仅暂存区时 320），空置时
+    高度约 373→190，内容工厂空闲态收成一行、有拖拽内容时才展开动作，
+    暂存区为空时只留一行提示，减少遮挡
+  * 面板尺寸随暂存区条数/内容工厂动作数自适应，不再预留空块
+  * 安装时由 gxde-k9 提供系统级保活服务（/usr/share/gxde-k9/slimy），
+    登录后自动拉起 `gxde-ai-see --daemon` 并在崩溃后保活
+  * 用户主动「退出（停止后台保活）」或取消勾选才停止保活；旧版本写在
+    用户目录的 .slimy 会自动清理并迁移到系统服务
+  * 依赖 gxde-k9（原先仅 Recommends）
+
+ -- shenmo <shenmo@spark-app.store>  Mon, 16 Nov 2026 20:15:00 +0800
+
 gxde-ai-see (1.0.2~beta1) unstable; urgency=medium
 
   * 使用React重写前端

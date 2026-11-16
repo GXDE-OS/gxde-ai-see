@@ -238,8 +238,10 @@ interface org.gxde.Portal
 - Wayland：`layer-shell` Overlay 层，锚定右下，`keyboard_interactivity = none`，
   不抢焦点、不进 dock、可精确定位。
 - X11：无边框工具窗口 + `_NET_WM_STATE_SKIP_TASKBAR` + 右下定位。
-- 尺寸：宽 500；高度随内容，列表上限 `屏高 / 3`，超出滚动；顶部手柄可拖高；
-  可「固定大小」。
+- 尺寸：拖拽时 420 宽（传送门 132 + 暂存区 + 内容工厂一行），高度随内容；
+  暂存区非空且没有拖拽时常显 320 宽的列表面板；
+  空暂存区只留一行提示、内容工厂空闲态只占一行（约 420×184）；
+  列表上限 `屏高 / 3`，超出滚动；顶部手柄可拖高；可「固定大小」。
 - 位置：默认右下（输入法面板附近），可拖边框移动，可恢复默认，可固定。
 
 ### 6.2 弹窗时机与「打扰」控制
@@ -369,9 +371,11 @@ interface org.gxde.Portal
 
 ## 10. 后台与 gxde-k9
 
-- 安装 `~/.local/share/GXDE/gxde-k9/slimy/gxde-ai-see.slimy`，
-  由 k9 每 5s 做 PID 检测并拉起 `gxde-ai-see --daemon`。
-- 设置项「开机自启动与后台保活」= 创建/删除该 `.slimy` 文件。
+- **安装即开启**：包内提供系统级 `/usr/share/gxde-k9/slimy/gxde-ai-see.slimy`，
+  由 k9 每 5s 检查一次，发现 `gxde-ai-see --daemon` 不在就拉起（崩溃/被杀后自动保活）。
+- **用户关闭才停**：面板菜单「退出（停止后台保活）」或取消勾选「开机自启与后台保活」时，
+  写入 `~/.config/GXDE/gxde-ai-see/k9-disabled`；`.slimy` 见到该标记静默退出，
+  重新勾选（删除标记）后恢复。旧版本写在用户目录的 `.slimy` 会自动清理迁移。
 - **环境不支持**（没有 `org.gxde.Portal`、X11 且无降级后端等）：
   - 首次弹一次 toast（dconf/配置记 `warned-unsupported`）；
   - 进程**不退出**，进入低资源空闲（不轮询、不建窗口），避免 k9 反复拉起。

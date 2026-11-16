@@ -17,11 +17,30 @@ Window {
   readonly property bool gridShown: controller.session.active
   readonly property int gridGap: 10
 
+  /* 右键菜单画在窗口里（layer-shell 上没法用原生弹出菜单）。紧凑面板只有
+   * 一百多像素高，菜单放不下：打开菜单前先把窗口向上撑出一块透明区域，
+   * 菜单在面板上方展开，关闭后再收回去。 */
+  property bool menuReserved: false
+  readonly property int menuSpace: menuReserved ? panelMenu.implicitHeight + 16 : 0
+
+  function openMenu() {
+    menuReserved = true
+    menuReserveTimer.restart()
+  }
+
+  Timer {
+    id: menuReserveTimer
+
+    interval: 80
+    repeat: false
+    onTriggered: panelMenu.popup()
+  }
+
   /* applied by the controller, which keeps the panel in its corner */
   readonly property size wantedSize: gridShown
                                      ? Qt.size(grid.width + gridGap + panel.width,
                                                Math.max(panel.height, grid.height))
-                                     : Qt.size(panel.width, panel.height)
+                                     : Qt.size(panel.width, panel.height + menuSpace)
 
   visible: false
   color: "transparent"
@@ -93,11 +112,13 @@ Window {
   Item {
     id: panel
 
-    readonly property int margin: 12
+    readonly property int margin: 10
 
     anchors.right: parent.right
     anchors.bottom: parent.bottom
-    width: root.controller.stagingOnly ? 360 : 500
+    /* 紧凑：随手拖动时不再展开半屏。暂存区有货时只显示列表（更窄），
+     * 需要传送门/内容工厂时再恢复完整宽度。 */
+    width: root.controller.stagingOnly ? 320 : 420
     height: margin * 2 + body.implicitHeight
 
     Rectangle {
@@ -117,7 +138,7 @@ Window {
 
       onPressed: (mouse) => {
         if (mouse.button === Qt.RightButton) {
-          panelMenu.popup()
+          root.openMenu()
         } else {
           const p = mapToItem(null, mouse.x, mouse.y)
           root.controller.beginMove(p.x, p.y)
@@ -164,9 +185,9 @@ Window {
         spacing: 10
 
         PortalZone {
-          Layout.preferredWidth: 176
+          Layout.preferredWidth: 132
           Layout.fillHeight: true
-          Layout.minimumHeight: 190
+          Layout.minimumHeight: 112
           visible: !root.controller.stagingOnly
           controller: root.controller
         }
@@ -228,8 +249,10 @@ Window {
       }
 
       ContentFactory {
+        id: contentFactory
+
         Layout.fillWidth: true
-        Layout.preferredHeight: 148
+        Layout.preferredHeight: contentFactory.implicitHeight
         visible: !root.controller.stagingOnly
         controller: root.controller
       }
@@ -276,8 +299,16 @@ Window {
     id: panelMenu
 
     /* a native popup is placed from the window's screen position, which Qt
-     * does not know for a layer-shell surface: keep it inside the panel */
+     * does not know for a layer-shell surface: keep it inside the window.
+     * The window has been grown upwards for it (see wantedSize), so anchor
+     * the menu just above the panel. */
     popupType: Popup.Item
+
+    onOpened: {
+      x = Math.max(8, panel.width - width - 10)
+      y = Math.max(8, panel.y - height - 8)
+    }
+    onClosed: root.menuReserved = false
 
     MenuItem {
       text: qsTr("固定位置")
@@ -322,7 +353,7 @@ Window {
       onTriggered: root.controller.showAbout()
     }
     MenuItem {
-      text: qsTr("退出")
+      text: qsTr("退出（停止后台保活）")
       onTriggered: root.controller.quit()
     }
   }
