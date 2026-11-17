@@ -33,6 +33,8 @@ debian/.debhelper/
 debian/files
 debian/debhelper-build-stamp
 debian/gxde-ai-see/
+debian/*.substvars
+debian/*.debhelper.log
 
 # translations build output
 *.qm
