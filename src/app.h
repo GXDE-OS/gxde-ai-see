@@ -35,6 +35,7 @@ private:
     void togglePanel();
     void onDragStarted();
     void onDragEnded();
+    void onTodoAdded();
     void showTodoWindow();
     void showChatWindow();
 

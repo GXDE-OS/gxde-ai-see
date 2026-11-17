@@ -209,7 +209,7 @@ void App::ensurePanel()
         m_panelPinned = false;
         m_panel->dismiss();
     });
-    connect(m_panel, &PortalPanel::todoAdded, this, &App::showTodoWindow);
+    connect(m_panel, &PortalPanel::todoAdded, this, &App::onTodoAdded);
     connect(m_panel, &PortalPanel::askWithContent, this,
             [this](const QString &text, const QStringList &files) {
                 showChatWindow();
@@ -243,6 +243,16 @@ void App::showChatWindow()
         m_chatWindow = new WebChatWindow;
     }
     m_chatWindow->activateForAsk();
+}
+
+/* 内容工厂里新建待办：只有待办窗口还没打开时才弹出来，
+ * 已经开着就别再抢用户的窗口。 */
+void App::onTodoAdded()
+{
+    if (m_todoWindow && m_todoWindow->isVisible()) {
+        return;
+    }
+    showTodoWindow();
 }
 
 void App::showTodoWindow()

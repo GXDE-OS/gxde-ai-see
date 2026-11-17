@@ -1,3 +1,10 @@
+gxde-ai-see (1.0.2~beta4) unstable; urgency=medium
+
+  * 内容工厂「添加到待办」：待办窗口未打开（或已隐藏）时才自动打开；
+    已经打开时只把条目加进列表，不再每次前置窗口打扰
+
+ -- shenmo <shenmo@spark-app.store>  Tue, 17 Nov 2026 21:10:00 +0800
+
 gxde-ai-see (1.0.2~beta3) unstable; urgency=medium
 
   * 对话输入框新增「+」按钮：手动选择文件 / 图片加入消息，作为附件发给小埃
