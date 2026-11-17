@@ -1,6 +1,6 @@
 # Maintainer: CharOfString <root@charofstring.cc>
 
-pkgname=gxde-ai-see-git
+pkgname=gxde-ai-see
 pkgver=1.0.2
 pkgrel=1
 pkgdesc='GXDE desktop AI assistant and drag-and-drop hub'
@@ -12,7 +12,7 @@ depends=(
     'dtk6gui'
     'gcc-libs'
     'glibc'
-    'gxde-bernese-git'
+    'gxde-bernese'
     'gxtk7'
     'icu'
     'layer-shell-qt'
@@ -31,7 +31,10 @@ makedepends=(
     'qt6-tools'
 )
 optdepends=('gxde-k9: startup and background keep-alive support'
-            'gxde-ai-core-git')
+            'gxde-ai-core')
+provides=("gxde-ai-see-git=$pkgver")
+conflicts=('gxde-ai-see-git')
+replaces=('gxde-ai-see-git')
 
 build() {
     cmake \
