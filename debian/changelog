@@ -1,3 +1,10 @@
+gxde-ai-see (1.0.2~beta9) unstable; urgency=medium
+
+  * 版本号收尾：包含透明图标、附件预览、上游模型列表、传送门菜单调整
+    （关闭窗口/拖拽唤起开关同步）等全部改动
+
+ -- shenmo <shenmo@spark-app.store>  Sat, 21 Nov 2026 17:40:00 +0800
+
 gxde-ai-see (1.0.2~beta8) unstable; urgency=medium
 
   * 传送门右键菜单：去掉「退出」和「隐藏窗口」，改为「关闭窗口」
