@@ -91,6 +91,8 @@ public:
     Q_INVOKABLE void dropOnStaging(QObject *mime, int row);
     Q_INVOKABLE void dropOnAction(const QString &id, QObject *mime);
     Q_INVOKABLE void dropOnAsk(QObject *mime);
+    /** 把当前拖拽内容整理成附件/提示词交给小埃；没有内容时只打开对话。 */
+    Q_INVOKABLE void askWithCurrentContent();
     Q_INVOKABLE bool isOwnDrag(QObject *mime) const;
     Q_INVOKABLE void startItemDrag(int row);
 
@@ -150,6 +152,9 @@ private:
     void updateBlur();
     void setContent(const DropContent &content);
     void runFactoryAction(const QString &id, const DropContent &content);
+    /* 内容工厂里暂时无法本地实现的动作：把附件 + 提示词交给对话 */
+    void askAboutContent(const QString &prompt, const DropContent &content);
+    QString cacheContentImage(const QImage &image);
     void showTextDialog(const QString &title, const QString &text);
     void openPortal();
     void setPortalSuppressed(bool suppressed);
@@ -186,6 +191,9 @@ private:
     bool m_dragging = false;
     bool m_portalSuppressed = false;
     bool m_ownDrag = false;
+    /* 从暂存区拖出时：先离开窗口，再拖回来才允许触发传送门 */
+    bool m_ownDragCanPortal = false;
+    bool m_ownDragLeftWindow = false;
     bool m_compositorPortalActive = false;
     bool m_fixedPosition = true;
     bool m_fixedSize = false;

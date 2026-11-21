@@ -6,6 +6,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 
+#include "chatattachments.h"
 #include "config.h"
 
 namespace {
@@ -70,13 +71,7 @@ QString sessionContext(const QVector<ChatMessage> &earlier)
            QLatin1Char('\n');
 }
 
-QJsonObject textBlock(const QString &text)
-{
-    return QJsonObject{ { QStringLiteral("type"), QStringLiteral("text") },
-                        { QStringLiteral("text"), text } };
 }
-
-} // namespace
 
 QStringList ChatClient::modeIds()
 {
@@ -149,21 +144,23 @@ void ChatClient::startTurn(const QString &conversationId, const QVector<ChatMess
     const int token = ++m_turnToken;
 
     const int earlier = history.size() - 1;
-    const QString text = history.constLast().content;
+    QStringList attachments;
+    const QString text = ChatAttachments::takeLines(history.constLast().content, &attachments);
     const int syncedAfter = history.size() + 1;
 
     const auto it = m_sessions.constFind(conversationId);
     if (it != m_sessions.constEnd() && it->synced == earlier) {
         const QString sessionId = it->id;
         useProvider(conversationId, sessionId, provider, [=, this]() {
-            prompt(conversationId, sessionId, QJsonArray{ textBlock(text) }, syncedAfter);
+            prompt(conversationId, sessionId, ChatAttachments::promptBlocks(QString(), text, attachments),
+                   syncedAfter);
         });
         return;
     }
     m_sessions.remove(conversationId);
 
-    const QJsonArray blocks{ textBlock(sessionContext(history.mid(0, earlier))),
-                             textBlock(text) };
+    const QJsonArray blocks = ChatAttachments::promptBlocks(sessionContext(history.mid(0, earlier)), text,
+                                           attachments);
     AiCore *core = AiCore::instance();
 
     auto fail = [this, token](const QString &error) {

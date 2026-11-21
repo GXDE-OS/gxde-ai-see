@@ -4,11 +4,14 @@
 #include "todowindow.h"
 
 #include "todomodel.h"
+#include "ui/ukuiwindow.h"
 
 #include "config.h"
 
+#include <QCloseEvent>
 #include <QContextMenuEvent>
 #include <QMenu>
+#include <QTimer>
 
 #include <QApplication>
 #include <QDialog>
@@ -144,6 +147,8 @@ private:
     int m_hoverRow = -1;
 };
 
+TodoWindow::~TodoWindow() = default;
+
 TodoWindow::TodoWindow(TodoModel *model, QWidget *parent)
     : Dtk::Widget::DBlurEffectWidget(parent)
     , m_model(model)
@@ -162,7 +167,8 @@ TodoWindow::TodoWindow(TodoModel *model, QWidget *parent)
 
     m_rightMargin = Config::instance()->getInt(QStringLiteral("todo/rightMargin"), 16);
     m_topMargin = Config::instance()->getInt(QStringLiteral("todo/topMargin"), 72);
-    m_keepAbove = Config::instance()->getBool(QStringLiteral("todo/keepAbove"), true);
+    /* 默认非置顶：可以像普通窗口一样被盖住，dock 里也不出现 */
+    m_keepAbove = Config::instance()->getBool(QStringLiteral("todo/keepAbove"), false);
 
     setupWindow();
     setupUi();
@@ -176,13 +182,9 @@ TodoWindow::TodoWindow(TodoModel *model, QWidget *parent)
 
 void TodoWindow::setupWindow()
 {
-    if (!m_keepAbove) {
-        /* plain toplevel: shows in the taskbar and can be covered/moved */
-        setWindowFlag(Qt::Tool, false);
-        return;
-    }
+    const bool wayland = QGuiApplication::platformName().startsWith(QLatin1String("wayland"));
 #ifdef GXDE_HAVE_LAYERSHELLQT
-    if (QGuiApplication::platformName().startsWith(QLatin1String("wayland"))) {
+    if (m_keepAbove && wayland) {
         createWinId();
         if (auto *layer = LayerShellQt::Window::get(windowHandle())) {
             LayerShellQt::Window::Anchors anchors;
@@ -196,8 +198,29 @@ void TodoWindow::setupWindow()
             layer->setScope(QStringLiteral("gxde-ai-see-todo"));
             layer->setScreenConfiguration(LayerShellQt::Window::ScreenFromQWindow);
         }
+        return;
     }
 #endif
+    /* 非置顶模式：普通 xdg_toplevel。xdg_toplevel 本身没有 skip-taskbar，
+     * 也没有客户端定位，所以再挂一层 ukui-shell（gxde-wlcom / treeland 提供）。 */
+    if (wayland) {
+        createWinId();
+        if (!m_ukui) {
+            m_ukui = std::make_unique<UkuiWindow>(this);
+            connect(m_ukui.get(), &UkuiWindow::positionChanged, this, [this](int x, int y) {
+                QScreen *scr = screen() ? screen() : QGuiApplication::primaryScreen();
+                if (!scr) {
+                    return;
+                }
+                const QRect available = scr->availableGeometry();
+                m_rightMargin = qMax(0, available.right() + 1 - x - width());
+                m_topMargin = qMax(0, y - available.top());
+                saveMargins();
+            });
+        }
+        m_ukui->attach(windowHandle());
+        m_ukui->setSkipTaskbar(true);
+    }
 }
 
 void TodoWindow::setupUi()
@@ -275,6 +298,10 @@ void TodoWindow::popup()
     refreshLayout();
     show();
     raise();
+    /* 非置顶的普通窗口需要主动要一次前台；置顶的 layer-shell 窗口不需要 */
+    if (!m_keepAbove && windowHandle()) {
+        windowHandle()->requestActivate();
+    }
 }
 
 void TodoWindow::refreshLayout()
@@ -317,11 +344,8 @@ void TodoWindow::addEntry()
 
 void TodoWindow::applyMargins()
 {
-    if (!m_keepAbove) {
-        return;
-    }
 #ifdef GXDE_HAVE_LAYERSHELLQT
-    if (QGuiApplication::platformName().startsWith(QLatin1String("wayland"))) {
+    if (m_keepAbove && QGuiApplication::platformName().startsWith(QLatin1String("wayland"))) {
         if (auto *layer = LayerShellQt::Window::get(windowHandle())) {
             layer->setMargins(QMargins(0, m_topMargin, m_rightMargin, 0));
             return;
@@ -330,8 +354,20 @@ void TodoWindow::applyMargins()
 #endif
     if (QScreen *scr = screen() ? screen() : QGuiApplication::primaryScreen()) {
         const QRect available = scr->availableGeometry();
-        move(available.right() - width() - m_rightMargin, available.top() + m_topMargin);
+        const int x = available.right() + 1 - width() - m_rightMargin;
+        const int y = available.top() + m_topMargin;
+        if (useUkuiPositioning()) {
+            m_ukui->setPosition(x, y);
+        } else {
+            move(x, y);
+        }
     }
+}
+
+bool TodoWindow::useUkuiPositioning() const
+{
+    return !m_keepAbove && m_ukui && m_ukui->available()
+           && QGuiApplication::platformName().startsWith(QLatin1String("wayland"));
 }
 
 void TodoWindow::contextMenuEvent(QContextMenuEvent *event)
@@ -410,4 +446,12 @@ void TodoWindow::showEvent(QShowEvent *event)
     Dtk::Widget::DBlurEffectWidget::showEvent(event);
     refreshLayout();
     applyMargins();
+}
+
+void TodoWindow::closeEvent(QCloseEvent *event)
+{
+    /* 「关闭」= 收进托盘，下次点托盘图标再出来 */
+    hide();
+    Q_EMIT hiddenToTray();
+    event->ignore();
 }

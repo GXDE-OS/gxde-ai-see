@@ -47,12 +47,14 @@ set(GXDE_AI_SEE_SOURCES
     src/chat/chattitler.cpp
     src/chat/webchatwindow.cpp
     src/chat/chatbridge.cpp
+    src/chat/chatattachments.cpp
     src/chat/chattheme.cpp
     src/ui/mimedroparea.cpp
     src/ui/pointertravel.cpp
     src/portal/dragwatcher.cpp
     src/ui/portalpainters.cpp
     src/ui/portalpanel.cpp
+    src/ui/ukuiwindow.cpp
     src/ui/aboutdialog.cpp
 )
 
@@ -133,7 +135,8 @@ if (TARGET Qt6::WaylandClient AND COMMAND qt6_generate_wayland_protocol_client_s
         PRIVATE_CODE
         FILES ${CMAKE_CURRENT_SOURCE_DIR}/src/portal/protocols/wlr-foreign-toplevel-management-unstable-v1.xml
               ${CMAKE_CURRENT_SOURCE_DIR}/src/portal/protocols/relative-pointer-unstable-v1.xml
-              ${CMAKE_CURRENT_SOURCE_DIR}/src/portal/protocols/treeland-dde-shell-v1.xml)
+              ${CMAKE_CURRENT_SOURCE_DIR}/src/portal/protocols/treeland-dde-shell-v1.xml
+              ${CMAKE_CURRENT_SOURCE_DIR}/src/ui/protocols/ukui-shell.xml)
     target_link_libraries(gxde-ai-see PRIVATE Qt6::WaylandClient)
     target_compile_definitions(gxde-ai-see PRIVATE GXDE_HAVE_WAYLAND_CLIENT=1)
 endif ()
@@ -167,6 +170,12 @@ target_link_libraries(gxde-ai-see PRIVATE
     ${ICU_LIBRARIES}
 )
 
+# QPlatformNativeInterface (wl_surface of a QWindow) lives in QtGui's private
+# headers; ukui-shell positioning needs the Wayland surface for the todo window.
+if (TARGET Qt6::GuiPrivate)
+    target_link_libraries(gxde-ai-see PRIVATE Qt6::GuiPrivate)
+endif ()
+
 target_link_directories(gxde-ai-see PRIVATE
     ${DTK2WIDGET_LIBRARY_DIRS}
     ${DTK6GUI_LIBRARY_DIRS}
@@ -193,6 +202,7 @@ add_executable(gxde-ai-see-aicoretest
     tests/aicoretest.cpp
     src/chat/aicore.cpp
     src/chat/chatclient.cpp
+    src/chat/chatattachments.cpp
     src/chat/chattitler.cpp
     src/config.cpp
 )
@@ -201,6 +211,13 @@ target_include_directories(gxde-ai-see-aicoretest PRIVATE src src/chat)
 target_link_libraries(gxde-ai-see-aicoretest PRIVATE Qt6::Core)
 target_compile_definitions(gxde-ai-see-aicoretest PRIVATE
     TESTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests")
+
+add_executable(gxde-ai-see-attachmenttest
+    tests/attachments.cpp
+    src/chat/chatattachments.cpp
+)
+target_include_directories(gxde-ai-see-attachmenttest PRIVATE src)
+target_link_libraries(gxde-ai-see-attachmenttest PRIVATE Qt6::Core Qt6::Gui)
 
 add_executable(gxde-ai-see-themetest
     tests/themetest.cpp

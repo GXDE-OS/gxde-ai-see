@@ -26,6 +26,7 @@
 #include <QDrag>
 #include <QFile>
 #include <QFileDialog>
+#include <QImage>
 #include <QMessageBox>
 #include <QMimeData>
 #include <QPushButton>
@@ -35,6 +36,7 @@
 #include <QStandardPaths>
 #include <QTimer>
 #include <QUrl>
+#include <QUuid>
 
 #include <bernese/window_effects.h>
 
@@ -624,16 +626,25 @@ void PortalPanel::liftPortalSuppression()
 {
     m_suppressWatch->stop();
     setPortalSuppressed(false);
-    if (PortalClient::instance()->available()) {
-        openPortal();
-    }
+    /* 拖出去本身不再顺手打开传送门：要拖回窗口里、再 hover 传送门才算。
+     * 见 m_ownDragCanPortal / DragEnter。 */
 }
 
 bool PortalPanel::eventFilter(QObject *watched, QEvent *event)
 {
-    if (watched == m_window && event->type() == QEvent::DragLeave && m_portalSuppressed
-        && isWayland()) {
-        liftPortalSuppression();
+    if (watched == m_window) {
+        if (event->type() == QEvent::DragLeave && m_ownDrag) {
+            m_ownDragLeftWindow = true;
+        } else if (event->type() == QEvent::DragEnter && m_ownDrag) {
+            /* 从暂存区拖出去再拖回来：这时才允许触发传送门 */
+            if (m_ownDragLeftWindow) {
+                m_ownDragCanPortal = true;
+                m_suppressWatch->stop();
+                setPortalSuppressed(false);
+            }
+        } else if (event->type() == QEvent::DragLeave && m_portalSuppressed && isWayland()) {
+            liftPortalSuppression();
+        }
     }
     return QObject::eventFilter(watched, event);
 }
@@ -647,6 +658,10 @@ void PortalPanel::stopPortalSuppression()
 void PortalPanel::portalEntered()
 {
     m_leaveTimer->stop();
+    /* 暂存区向外拖动时，光标一开始就在面板里；没先拖出窗口之前不触发传送门 */
+    if (m_ownDrag && !m_ownDragCanPortal) {
+        return;
+    }
     if (!portalOpen() && !m_portalSuppressed && !m_portalTimer->isActive()) {
         m_portalTimer->start();
     }
@@ -853,8 +868,18 @@ void PortalPanel::startItemDrag(int row)
     }
 
     m_ownDrag = true;
+    m_ownDragCanPortal = false;
+    m_ownDragLeftWindow = false;
+    if (m_window && m_window->isVisible()) {
+        /* 从面板里开始拖：先把传送门压住，拖出窗口再拖回来才放开 */
+        m_suppressWatch->stop();
+        setPortalSuppressed(true);
+    }
     const Qt::DropAction action = drag->exec(Qt::CopyAction | Qt::MoveAction, Qt::CopyAction);
     m_ownDrag = false;
+    m_ownDragCanPortal = false;
+    m_ownDragLeftWindow = false;
+    setPortalSuppressed(false);
     const bool internalMove = mime->property("gxdeInternalMove").toBool();
     drag->deleteLater();
     if (internalMove) {
@@ -1158,18 +1183,83 @@ void PortalPanel::runFactoryAction(const QString &id, const DropContent &content
         return;
     }
     if (id == QLatin1String("ask")) {
-        Q_EMIT openChatRequested();
+        askAboutContent(QString(), content);
         return;
     }
+    /* 这些能力先交给小埃：把内容作为附件/提示词准备好，用户发出去即可 */
     if (id == QLatin1String("translate")) {
-        Q_EMIT toast(tr("翻译接口将在小埃同学接入后可用"));
+        askAboutContent(tr("请把下面的内容翻译成中文（如果原文是中文，就翻译成英文），"
+                           "保留原有格式。"),
+                        content);
         return;
     }
-    if (id == QLatin1String("ocr") || id == QLatin1String("describe") ||
-        id == QLatin1String("transcribe")) {
-        Q_EMIT toast(tr("该能力尚未接入 GXDE Daemon"));
+    if (id == QLatin1String("ocr")) {
+        askAboutContent(tr("请提取这个图片附件中的文字，按原样输出。"), content);
+        return;
+    }
+    if (id == QLatin1String("describe")) {
+        askAboutContent(tr("请描述这个附件的内容。"), content);
+        return;
+    }
+    if (id == QLatin1String("transcribe")) {
+        askAboutContent(tr("请把这个音频附件转写成文字。"), content);
         return;
     }
 
     Q_EMIT toast(tr("未知操作：%1").arg(id));
+}
+
+QString PortalPanel::cacheContentImage(const QImage &image)
+{
+    if (image.isNull()) {
+        return QString();
+    }
+    const QString dir = Config::instance()->cacheDir() + QStringLiteral("/content");
+    QDir().mkpath(dir);
+    const QString path = dir + QLatin1Char('/') + QUuid::createUuid().toString(QUuid::WithoutBraces)
+                       + QStringLiteral(".png");
+    return image.save(path, "PNG") ? path : QString();
+}
+
+void PortalPanel::askAboutContent(const QString &prompt, const DropContent &content)
+{
+    QString text = prompt;
+    QStringList files;
+    for (const QString &path : content.filePaths) {
+        if (!path.isEmpty()) {
+            files.append(path);
+        }
+    }
+    if (files.isEmpty() && !content.image.isNull()) {
+        const QString path = cacheContentImage(content.image);
+        if (!path.isEmpty()) {
+            files.append(path);
+        }
+    }
+
+    if (content.kind == DropContent::Text && !content.text.trimmed().isEmpty()) {
+        if (!text.isEmpty()) {
+            text += QStringLiteral("\n\n");
+        }
+        text += content.text.left(8000);
+    } else if (files.isEmpty() && !content.link.raw.isEmpty()) {
+        if (!text.isEmpty()) {
+            text += QStringLiteral("\n\n");
+        }
+        text += content.link.raw;
+    }
+    if (text.isEmpty() && files.isEmpty()) {
+        Q_EMIT openChatRequested();
+        return;
+    }
+    Q_EMIT askWithContent(text, files);
+}
+
+void PortalPanel::askWithCurrentContent()
+{
+    if (m_content.valid()) {
+        askAboutContent(QString(), m_content);
+        return;
+    }
+    Q_EMIT openChatRequested();
 }

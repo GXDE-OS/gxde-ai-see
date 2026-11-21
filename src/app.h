@@ -5,6 +5,7 @@
 
 #include <QObject>
 
+class QSystemTrayIcon;
 class WebChatWindow;
 class PortalPanel;
 class QLocalServer;
@@ -37,12 +38,17 @@ private:
     void onDragEnded();
     void onTodoAdded();
     void showTodoWindow();
+    void toggleTodoWindow();
+    void addTodoEntry();
+    void ensureTray();
     void showChatWindow();
 
     StagingModel *m_model = nullptr;
     PortalPanel *m_panel = nullptr;
     TodoWindow *m_todoWindow = nullptr;
     WebChatWindow *m_chatWindow = nullptr;
+    QSystemTrayIcon *m_tray = nullptr;
+    bool m_trayHintShown = false;
     QLocalServer *m_server = nullptr;
     bool m_daemon = false;
     bool m_dragging = false;

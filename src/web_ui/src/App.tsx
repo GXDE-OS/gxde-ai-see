@@ -72,7 +72,9 @@ export function App() {
     if (bridge === null) return
     const off = bridge.on('askRequested', (text, files) => {
       openChat(null)
-      setDraft([text, ...files].filter(part => part !== '').join('\n'))
+      // The attachments travel as the same marker lines the composer uses;
+      // the native side turns them into real ACP attachments on send.
+      setDraft([text, ...files.map(file => t.droppedFile(file))].filter(part => part !== '').join('\n'))
       const title = text === '' ? fileName(files[0] ?? '') : text.replace(/\s+/g, ' ').trim().slice(0, 24)
       setAskTitle(title === '' ? undefined : title)
       setFocusRequest(n => n + 1)

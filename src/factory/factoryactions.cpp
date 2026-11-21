@@ -63,8 +63,6 @@ QVector<FactoryAction> linkActions(const DropContent &content)
     }
     actions.append(action(QStringLiteral("todo"), QStringLiteral("添加到待办"),
                           QStringLiteral("checkbox-checked")));
-    actions.append(action(QStringLiteral("ask"), QStringLiteral("问问小埃"),
-                          QStringLiteral("dialog-question")));
     return actions;
 }
 
@@ -105,8 +103,6 @@ QVector<FactoryAction> fileActions(const DropContent &content)
                           QStringLiteral("edit-copy")));
     actions.append(action(QStringLiteral("todo"), QStringLiteral("添加到待办"),
                           QStringLiteral("checkbox-checked")));
-    actions.append(action(QStringLiteral("ask"), QStringLiteral("问问小埃"),
-                          QStringLiteral("dialog-question")));
     return actions;
 }
 

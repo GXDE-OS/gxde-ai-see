@@ -13,13 +13,35 @@
 #include "todo/todowindow.h"
 #include "ui/portalpanel.h"
 
+#include <QCoreApplication>
 #include <QDBusConnection>
 #include <QDBusMessage>
+#include <QDir>
+#include <QFile>
+#include <QIcon>
 #include <QLocalServer>
+#include <QMenu>
+#include <QStandardPaths>
+#include <QSystemTrayIcon>
 #include <QTimer>
 #include <QLocalSocket>
 
 #include <unistd.h>
+
+namespace {
+
+/* 托盘里的「退出」也要把 k9 保活关掉，否则几秒后又被拉起来 */
+void disableK9KeepAlive()
+{
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+    QDir().mkpath(dir);
+    QFile marker(dir + QStringLiteral("/k9-disabled"));
+    if (marker.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        marker.write("# created by gxde-ai-see: the user quit from the todo tray\n");
+    }
+}
+
+} // namespace
 
 App::App(QObject *parent)
     : QObject(parent)
@@ -257,16 +279,77 @@ void App::onTodoAdded()
 
 void App::showTodoWindow()
 {
+    ensureTray();
     if (!m_todoWindow) {
         m_todoWindow = new TodoWindow(TodoModel::instance());
         connect(m_todoWindow, &TodoWindow::recreateRequested, this, [this]() {
             if (m_todoWindow) {
-                m_todoWindow->close();
+                m_todoWindow->hide();
                 m_todoWindow->deleteLater();
                 m_todoWindow = nullptr;
             }
             showTodoWindow();
         });
+        connect(m_todoWindow, &TodoWindow::hiddenToTray, this, [this]() {
+            if (!m_tray || m_trayHintShown) {
+                return;
+            }
+            m_trayHintShown = true;
+            m_tray->showMessage(tr("待办已收进托盘"),
+                                tr("点托盘里的待办图标可以重新打开。"), QSystemTrayIcon::Information,
+                                3000);
+        });
     }
     m_todoWindow->popup();
+}
+
+void App::toggleTodoWindow()
+{
+    if (m_todoWindow && m_todoWindow->isVisible()) {
+        m_todoWindow->hide();
+        return;
+    }
+    showTodoWindow();
+}
+
+void App::addTodoEntry()
+{
+    showTodoWindow();
+    m_todoWindow->addEntry();
+}
+
+void App::ensureTray()
+{
+    if (m_tray) {
+        return;
+    }
+    QIcon icon = QIcon::fromTheme(QStringLiteral("gxde-ai-see-todo"),
+                                  QIcon(QStringLiteral("/usr/share/icons/hicolor/256x256/apps/"
+                                                        "gxde-ai-see-todo.png")));
+    m_tray = new QSystemTrayIcon(icon, this);
+    m_tray->setToolTip(tr("GXDE 待办"));
+
+    auto *menu = new QMenu;
+    menu->addAction(tr("显示待办"), this, &App::showTodoWindow);
+    menu->addAction(tr("新建待办…"), this, &App::addTodoEntry);
+    menu->addAction(tr("隐藏待办"), this, [this]() {
+        if (m_todoWindow) {
+            m_todoWindow->hide();
+        }
+    });
+    menu->addSeparator();
+    menu->addAction(tr("退出小埃同学"), this, [this]() {
+        disableK9KeepAlive();
+        QCoreApplication::quit();
+    });
+    m_tray->setContextMenu(menu);
+
+    connect(m_tray, &QSystemTrayIcon::activated, this,
+            [this](QSystemTrayIcon::ActivationReason reason) {
+                if (reason == QSystemTrayIcon::Trigger ||
+                    reason == QSystemTrayIcon::DoubleClick) {
+                    toggleTodoWindow();
+                }
+            });
+    m_tray->show();
 }

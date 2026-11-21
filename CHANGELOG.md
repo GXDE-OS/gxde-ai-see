@@ -1,5 +1,20 @@
 # 更新日志
 
+## 1.0.2~beta5 — 2026-11-21
+
+- 内容工厂：去掉重复的「问问小埃」动作，改成右侧贯穿整块的大按钮；
+  暂未本地实现的动作（翻译 / OCR / 生成描述 / 转写）改成「附件 + 提示词」
+  交给小埃处理
+  · shenmo <shenmo@spark-app.store>
+- 附件真正对接 AI Core：图片内嵌 base64、文本文件内容内嵌，不再只发路径；
+  输入框 +、拖拽、问问小埃、内容工厂统一走这套
+  · shenmo <shenmo@spark-app.store>
+- 暂存区向外拖出不再误触传送门：先拖出面板、再拖回来才触发
+  · shenmo <shenmo@spark-app.store>
+- 待办默认非置顶、dock 不显示图标（ukui-shell skip-taskbar + 定位），
+  关闭收进托盘；新增托盘图标（显示/新建/隐藏/退出）
+  · shenmo <shenmo@spark-app.store>
+
 ## 1.0.2~beta4 — 2026-11-17
 
 - 内容工厂「添加到待办」后按需打开待办窗口：未打开或已隐藏时才弹出，
