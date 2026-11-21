@@ -12,7 +12,7 @@ export const t = {
   attachHint: '手动选择文件或图片，作为附件加入消息',
   removeAttachment: '移除附件',
   portalSection: '传送门',
-  portalShortcut: '传送门快捷入口',
+  portalShortcut: '拖拽时唤起传送门',
   portalShortcutHint: '开启时，拖动文件或文字会自动唤起传送门面板；关闭后拖拽不再弹出传送门（仍可从应用菜单打开「传送门」，或运行 gxde-ai-see --show）。暂存区有内容时常显的列表不受影响。',
   copy: '复制',
   copied: '复制成功',

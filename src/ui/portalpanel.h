@@ -52,6 +52,8 @@ class PortalPanel : public QObject
     Q_PROPERTY(bool hideOnFullscreen READ hideOnFullscreen WRITE setHideOnFullscreen
                    NOTIFY settingsChanged)
     Q_PROPERTY(bool autostart READ autostart WRITE setAutostart NOTIFY settingsChanged)
+    /* 拖拽时是否唤起传送门（与对话设置里的同名开关共用 portal/enabled） */
+    Q_PROPERTY(bool portalOnDrag READ portalOnDrag WRITE setPortalOnDrag NOTIFY settingsChanged)
 
 public:
     explicit PortalPanel(StagingModel *model, QObject *parent = nullptr);
@@ -84,6 +86,8 @@ public:
     void setHideOnFullscreen(bool hide);
     bool autostart() const;
     void setAutostart(bool enable);
+    bool portalOnDrag() const;
+    void setPortalOnDrag(bool enabled);
 
     /* drag & drop, called from QML with MimeDropArea's mime object */
     Q_INVOKABLE void noteDragContent(QObject *mime);

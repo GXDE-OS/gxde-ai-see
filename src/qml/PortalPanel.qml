@@ -334,6 +334,12 @@ Window {
     }
     MenuSeparator { }
     MenuItem {
+      text: qsTr("拖拽时唤起传送门")
+      checkable: true
+      checked: root.controller.portalOnDrag
+      onTriggered: root.controller.portalOnDrag = checked
+    }
+    MenuItem {
       text: qsTr("开机自启与后台保活")
       checkable: true
       checked: root.controller.autostart
@@ -345,16 +351,12 @@ Window {
       onTriggered: root.controller.clearAll()
     }
     MenuItem {
-      text: qsTr("隐藏")
+      text: qsTr("关闭窗口")
       onTriggered: root.controller.requestHide()
     }
     MenuItem {
       text: qsTr("关于")
       onTriggered: root.controller.showAbout()
-    }
-    MenuItem {
-      text: qsTr("退出（停止后台保活）")
-      onTriggered: root.controller.quit()
     }
   }
 }

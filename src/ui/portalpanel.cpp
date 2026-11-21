@@ -1005,6 +1005,22 @@ void PortalPanel::setHideOnFullscreen(bool hide)
     Q_EMIT settingsChanged();
 }
 
+bool PortalPanel::portalOnDrag() const
+{
+    return Config::instance()->getBool(QStringLiteral("portal/enabled"), true);
+}
+
+void PortalPanel::setPortalOnDrag(bool enabled)
+{
+    Config *config = Config::instance();
+    if (config->getBool(QStringLiteral("portal/enabled"), true) == enabled) {
+        return;
+    }
+    config->set(QStringLiteral("portal/enabled"), enabled);
+    config->sync();
+    Q_EMIT settingsChanged();
+}
+
 bool PortalPanel::autostart() const
 {
     /* 安装包自带 k9 保活服务；k9DisabledPath() 是用户自己的开关 */
