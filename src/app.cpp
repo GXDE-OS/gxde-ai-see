@@ -274,7 +274,15 @@ void App::onTodoAdded()
     if (m_todoWindow && m_todoWindow->isVisible()) {
         return;
     }
-    showTodoWindow();
+    /* 第一次打开时 TodoWindow（含 layer-shell / ukui-shell / 托盘）是现建的：
+     * 不能在拖拽的 drop 事件里做——拖拽 grab 还没释放，窗口映射会把整个
+     * 拖拽卡住，看起来像传送门没反应。等这一轮事件处理完再弹。 */
+    QTimer::singleShot(120, this, [this]() {
+        if (m_todoWindow && m_todoWindow->isVisible()) {
+            return;
+        }
+        showTodoWindow();
+    });
 }
 
 void App::showTodoWindow()

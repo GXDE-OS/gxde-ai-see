@@ -166,6 +166,7 @@ function AccountEditor({ presets, original, onCancel, onSave }: {
       <Field label={t.modelList}>
         {id => <input id={id} value={models} placeholder={t.modelListPlaceholder} onChange={(event) => { setModels(event.target.value) }} />}
       </Field>
+      <p className={css.hint}>{t.modelListHint}</p>
       <Field label={t.defaultModel}>
         {id => (
           <select id={id} value={defaultModel} disabled={modelIds.length === 0} onChange={(event) => { setModel(event.target.value) }}>

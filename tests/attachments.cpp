@@ -66,13 +66,26 @@ int main(int argc, char *argv[])
     check(text == QStringLiteral("帮我看看这个"), "attachment lines stripped from text");
     check(paths == QStringList({ textPath, imagePath }), "attachment paths collected");
 
+    /* 文件管理器拖拽会额外带一条 file:// URI：有附件时应被丢掉 */
+    QStringList uriPaths;
+    const QString uriText = ChatAttachments::takeLines(
+        QStringLiteral("file://%1\n[文件] %2\n图里是什么").arg(imagePath, imagePath),
+        &uriPaths);
+    check(uriText == QStringLiteral("图里是什么"), "duplicate file:// line dropped");
+    check(uriPaths == QStringList({ imagePath }), "uri line does not add an attachment");
+
+    /* 普通消息里的 file:// 链接（没有附件）要保留 */
+    QStringList none;
+    const QString link = QStringLiteral("看看 file:///tmp/x.txt 这个");
+    check(ChatAttachments::takeLines(link, &none) == link, "plain file:// text kept");
+
     check(ChatAttachments::isImageFile(imagePath), "png detected as image");
     check(!ChatAttachments::isImageFile(textPath), "txt is not an image");
 
     const QJsonArray blocks =
         ChatAttachments::promptBlocks(QString(), QStringLiteral("帮我看看"),
                                       { textPath, imagePath, dir.filePath(QStringLiteral("没了.png")) });
-    check(blocks.size() == 4, "text + file + image + missing = 4 blocks");
+    check(blocks.size() == 5, "text + file + image + missing + vision note = 5 blocks");
 
     const QJsonObject textBlock = blocks.at(0).toObject();
     check(textBlock.value(QStringLiteral("type")).toString() == QStringLiteral("text"),

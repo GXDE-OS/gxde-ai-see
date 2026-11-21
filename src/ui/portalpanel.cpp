@@ -74,6 +74,22 @@ QString k9DisabledPath()
            QStringLiteral("/k9-disabled");
 }
 
+bool isPathOnlyText(const QString &text)
+{
+    const QStringList lines = text.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+    if (lines.isEmpty()) {
+        return true;
+    }
+    for (const QString &line : lines) {
+        const QString trimmed = line.trimmed();
+        if (!trimmed.startsWith(QLatin1String("file:")) &&
+            !trimmed.startsWith(QLatin1Char('/'))) {
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 PortalPanel::PortalPanel(StagingModel *model, QObject *parent)
@@ -830,7 +846,12 @@ void PortalPanel::dropOnAsk(QObject *mime)
             files.append(url.toLocalFile());
         }
     }
-    Q_EMIT askWithContent(data->hasText() ? data->text() : QString(), files);
+    QString text = data->hasText() ? data->text().trimmed() : QString();
+    /* 文件管理器还会附带文件路径/URI 文本；有文件时不要把它重复当提示词 */
+    if (!files.isEmpty() && isPathOnlyText(text)) {
+        text.clear();
+    }
+    Q_EMIT askWithContent(text, files);
 }
 
 void PortalPanel::startItemDrag(int row)

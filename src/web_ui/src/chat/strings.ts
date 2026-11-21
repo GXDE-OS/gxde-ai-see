@@ -124,6 +124,7 @@ export const t = {
   keepKey: '留空则保留原有 Key',
   modelList: '模型列表',
   modelListPlaceholder: '多个模型用英文逗号分隔',
+  modelListHint: '模型列表来自供应商预设或手动填写；GXDE AI Core 暂不提供从上游自动拉取模型列表的接口。',
   defaultModel: '默认模型',
   keyDocs: '如何获取 API Key',
   keyringHint: '账号和 API Key 由 GXDE AI Core 保存在系统密钥环中，与 gxde-ai-core 命令行共用。',

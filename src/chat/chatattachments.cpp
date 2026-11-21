@@ -7,6 +7,7 @@
 #include <QFileInfo>
 #include <QJsonObject>
 #include <QMimeDatabase>
+#include <QSet>
 #include <QUrl>
 
 namespace {
@@ -76,13 +77,42 @@ QString takeLines(const QString &text, QStringList *paths)
 {
     const QStringList lines = text.split(QLatin1Char('\n'));
     QStringList kept;
+    QStringList markers;
     for (const QString &line : lines) {
         QString path;
         if (isAttachmentLine(line.trimmed(), &path)) {
             paths->append(path);
+            markers.append(path);
         } else {
             kept.append(line);
         }
+    }
+
+    /* 拖拽时界面有时还会附带一段 file:// URI / 路径文本；它和附件重复，
+     * 留着只会让模型以为还要自己再读一遍文件。 */
+    if (!paths->isEmpty()) {
+        QSet<QString> known;
+        for (const QString &path : *paths) {
+            known.insert(QFileInfo(path).absoluteFilePath());
+        }
+        QStringList filtered;
+        for (const QString &line : kept) {
+            QString trimmed = line.trimmed();
+            if (trimmed.startsWith(QLatin1String("@file:"))) {
+                trimmed.remove(0, 1);
+            }
+            if (trimmed.startsWith(QLatin1String("file:"))) {
+                const QString local = QUrl(trimmed).toLocalFile();
+                if (!local.isEmpty() && known.contains(QFileInfo(local).absoluteFilePath())) {
+                    continue;
+                }
+            }
+            if (known.contains(QFileInfo(trimmed).absoluteFilePath())) {
+                continue;
+            }
+            filtered.append(line);
+        }
+        kept = filtered;
     }
     return kept.join(QLatin1Char('\n')).trimmed();
 }
@@ -98,6 +128,7 @@ QJsonArray promptBlocks(const QString &context, const QString &text, const QStri
     }
 
     const QMimeDatabase mimeDatabase;
+    int images = 0;
     for (const QString &path : paths) {
         const QFileInfo info(path);
         if (!info.exists()) {
@@ -111,6 +142,7 @@ QJsonArray promptBlocks(const QString &context, const QString &text, const QStri
             const QJsonObject image = imageBlock(info.absoluteFilePath(), mime.name());
             if (!image.isEmpty()) {
                 blocks.append(image);
+                ++images;
                 continue;
             }
         }
@@ -125,6 +157,14 @@ QJsonArray promptBlocks(const QString &context, const QString &text, const QStri
         blocks.append(textBlock(QObject::tr("【附件】%1（路径：%2，类型：%3）无法直接内嵌，"
                                             "需要时请用读取文件的工具查看。")
                                     .arg(name, info.absoluteFilePath(), mime.name())));
+    }
+
+    if (images > 0) {
+        /* 有些账号/模型（例如纯文本模型）看不到图片：让模型直接说明，
+         * 而不是让用户以为附件没发出去。 */
+        blocks.append(textBlock(QObject::tr(
+            "（这条消息附带了图片。如果当前模型不支持图片输入，请直接告诉用户"
+            "换一个支持视觉的模型，例如 Gemini 账号。）")));
     }
 
     if (blocks.isEmpty()) {
