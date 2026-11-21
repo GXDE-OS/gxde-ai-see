@@ -12,6 +12,7 @@ import cr from '../vendor/dsh/conversation/ConversationRoot.module.css'
 import { ApprovalCard } from './ApprovalCard'
 import { ChatView } from './ChatView'
 import { Composer, HeroShell } from './Composer'
+import type { ComposerAttachment } from './Composer'
 import local from './ConversationPanel.module.css'
 
 function useColumnWidth(body: HTMLElement | null) {
@@ -72,6 +73,9 @@ export interface ConversationPanelProps {
   focusRequest: number
   /** The composer's + button: pick files to attach. */
   onAttach?: (() => void) | undefined
+  /** 待发送附件，显示在输入框上方。 */
+  attachments?: ComposerAttachment[]
+  onRemoveAttachment?: (path: string) => void
   onSend: ((text: string) => void) | undefined
   onStop: () => void
   onAnswer: (key: string, optionId: string) => void
@@ -81,7 +85,7 @@ export interface ConversationPanelProps {
 }
 
 export function ConversationPanel({
-  conversation, running, busy, activityAt, approval, draft, onDraftChange, tools, notice, focusRequest, onAttach, onSend, onStop, onAnswer, onRetry, onEdit, onFork,
+  conversation, running, busy, activityAt, approval, draft, onDraftChange, tools, notice, focusRequest, onAttach, attachments, onRemoveAttachment, onSend, onStop, onAnswer, onRetry, onEdit, onFork,
 }: ConversationPanelProps) {
   const hero = conversation === undefined
   const phase = hero ? 'hero' : 'active'
@@ -153,6 +157,8 @@ export function ConversationPanel({
                       notice={notice}
                       focusRequest={focusRequest}
                       onAttach={onAttach}
+                      attachments={attachments}
+                      onRemoveAttachment={onRemoveAttachment}
                     />
                   )}
             </div>

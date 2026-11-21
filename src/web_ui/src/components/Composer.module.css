@@ -36,3 +36,60 @@
 .send.send:hover:not(:disabled) {
   background: var(--gxde-accent-hover);
 }
+
+/* 输入框上方的待发送附件（DSH 风格：先预览再发送） */
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 4px 6px;
+}
+
+.chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 230px;
+  padding: 3px 6px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+}
+
+.chipImage {
+  padding: 3px 6px 3px 3px;
+}
+
+.chipThumb {
+  width: 36px;
+  height: 28px;
+  border-radius: 5px;
+  object-fit: cover;
+}
+
+.chipGlyph {
+  font-size: 14px;
+}
+
+.chipName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chipRemove {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: 0.55;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.chipRemove:hover {
+  opacity: 1;
+}

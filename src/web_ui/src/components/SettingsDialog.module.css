@@ -143,3 +143,15 @@
   color: var(--dsw-alias-state-business-primary);
   font-size: 12px;
 }
+
+/* 模型列表 + “从上游获取”按钮 */
+.inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inline input {
+  flex: 1;
+  min-width: 0;
+}

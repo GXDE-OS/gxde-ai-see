@@ -1,5 +1,16 @@
 # 更新日志
 
+## 1.0.2~beta7 — 2026-11-21
+
+- 输入框上方附件预览（DSH 风格）：图片显示缩略图、可移除；纯附件也可发送
+  · shenmo <shenmo@spark-app.store>
+- 账号设置支持「从上游获取」模型列表（AI Core >= 1.0.0-beta4）
+  · shenmo <shenmo@spark-app.store>
+- 移除说明文案；图片不再被 AI Core 上下文管理降级（配合 AI Core beta4）
+  · shenmo <shenmo@spark-app.store>
+- 应用图标换成透明底、由 384px 源图重新生成；聊天头像/favicon 同步更新
+  · shenmo <shenmo@spark-app.store>
+
 ## 1.0.2~beta6 — 2026-11-21
 
 - 修复第一次从传送门添加待办时卡顿、待办窗口不出现：窗口创建/显示推迟到

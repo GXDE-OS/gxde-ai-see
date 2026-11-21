@@ -228,6 +228,10 @@ export function installDevBridge() {
       done?.(valid ? '' : 'MCP 配置不是合法的 JSON 数组')
     },
     saveImage: (_base64: string, done: Callback) => done?.(`/tmp/gxde-dev-${crypto.randomUUID()}.png`),
+    attachmentPreview: (_path: string, done: Callback) => done?.(''),
+    fetchAccountModels: (callId: number) => {
+      reply(callId, () => ({ models: PRESETS[0]!.models.map(item => item.id) }))
+    },
     pickAttachments: (callId: number) => {
       reply(callId, () => [
         { path: '/tmp/gxde-dev-attachment.pdf', name: 'gxde-dev-attachment.pdf', image: false },

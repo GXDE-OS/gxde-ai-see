@@ -59,6 +59,10 @@ public:
     Q_INVOKABLE QString saveSettings(const QJsonObject &settings);
     /** Store a dropped image (base64) for the model to read; returns its path. */
     Q_INVOKABLE QString saveImage(const QString &base64);
+    /** 附件缩略图（data URL），非图片或读不出来返回空。 */
+    Q_INVOKABLE QString attachmentPreview(const QString &path) const;
+    /** 让 AI Core 按账号从上游拉取模型列表。 */
+    Q_INVOKABLE void fetchAccountModels(int callId, const QString &accountId);
     /** Let the user pick local files; answers with [{path, name, image}]. */
     Q_INVOKABLE void pickAttachments(int callId);
 

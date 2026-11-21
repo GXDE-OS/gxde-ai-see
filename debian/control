@@ -40,7 +40,7 @@ Depends: ${shlibs:Depends}, ${misc:Depends},
          qml6-module-qtquick,
          qml6-module-qtquick-layouts,
          qml6-module-qtquick-window,
-         gxde-ai-core,
+         gxde-ai-core (>= 1.0.0-beta4),
          gxde-k9 (>= 2.0.0)
 Description: GXDE AI See - 小埃同学
  GXDE 桌面的 AI 助手：传送门、内容工厂、待办与小埃同学对话。

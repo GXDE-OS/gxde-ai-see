@@ -47,7 +47,8 @@ function validUrl(text: string): boolean {
   }
 }
 
-function AccountEditor({ presets, original, onCancel, onSave }: {
+function AccountEditor({ bridge, presets, original, onCancel, onSave }: {
+  bridge: Bridge
   presets: Preset[]
   /** Undefined adds a new account. */
   original: Account | undefined
@@ -67,6 +68,8 @@ function AccountEditor({ presets, original, onCancel, onSave }: {
   const [models, setModels] = useState((original ? idsOf(original.models) : idsOf(presetOf(initialPreset)?.models)).join(', '))
   const [model, setModel] = useState(original?.model ?? '')
   const [problem, setProblem] = useState('')
+  const [fetching, setFetching] = useState(false)
+  const [fetchError, setFetchError] = useState('')
 
   const preset = presetOf(presetId)
   const endpoints = endpointsOf(preset)
@@ -81,6 +84,33 @@ function AccountEditor({ presets, original, onCancel, onSave }: {
     setBaseUrl(endpointsOf(next)[0]?.url ?? '')
     if (!editing || name === '') setName(next?.label ?? '')
     setModels(idsOf(next?.models).join(', '))
+  }
+
+  /** 让 AI Core 用这个账号的 API Key 去上游拉模型列表 */
+  const fetchUpstream = () => {
+    if (original?.id === undefined) {
+      setFetchError(t.fetchModelsNeedSaved)
+      return
+    }
+    setFetching(true)
+    setFetchError('')
+    void bridge.fetchAccountModels(original.id).then((result: unknown) => {
+      setFetching(false)
+      const payload = result as { models?: unknown } | unknown[] | null
+      const list = Array.isArray(payload) ? payload : (payload as { models?: unknown } | null)?.models
+      const ids = Array.isArray(list)
+        ? [...new Set(list.map(item => (typeof item === 'string' ? item : (item as { id?: unknown } | null)?.id)).filter((item): item is string => typeof item === 'string' && item !== ''))]
+        : []
+      if (ids.length === 0) {
+        setFetchError(t.fetchModelsEmpty)
+        return
+      }
+      setModels(ids.join(', '))
+      setModel(current => ids.includes(current) ? current : ids[0]!)
+    }, (reason: unknown) => {
+      setFetching(false)
+      setFetchError(t.fetchModelsFailed(messageOf(reason)))
+    })
   }
 
   const save = () => {
@@ -164,9 +194,16 @@ function AccountEditor({ presets, original, onCancel, onSave }: {
         )}
       </Field>
       <Field label={t.modelList}>
-        {id => <input id={id} value={models} placeholder={t.modelListPlaceholder} onChange={(event) => { setModels(event.target.value) }} />}
+        {id => (
+          <div className={css.inline}>
+            <input id={id} value={models} placeholder={t.modelListPlaceholder} onChange={(event) => { setModels(event.target.value) }} />
+            <Button variant="outline" disabled={fetching} onClick={fetchUpstream}>
+              {fetching ? t.fetchingModels : t.fetchModels}
+            </Button>
+          </div>
+        )}
       </Field>
-      <p className={css.hint}>{t.modelListHint}</p>
+      {fetchError !== '' && <p className={css.error} role="alert">{fetchError}</p>}
       <Field label={t.defaultModel}>
         {id => (
           <select id={id} value={defaultModel} disabled={modelIds.length === 0} onChange={(event) => { setModel(event.target.value) }}>
@@ -289,6 +326,7 @@ function Accounts({ bridge, source }: { bridge: Bridge; source: AccountsSource }
       {notice !== '' && <p className={css.hint} role="status">{notice}</p>}
       {editing !== null && list !== undefined && (
         <AccountEditor
+          bridge={bridge}
           presets={list.presets}
           original={editing === 'new' ? undefined : editing}
           onCancel={() => { setEditing(null) }}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import clsx from 'clsx'
-import { attachmentLine, useDrop } from './chat/drop'
+import { useDrop } from './chat/drop'
 import { t } from './chat/strings'
 import { useAccounts, useModes } from './chat/useBackend'
 import { useChat } from './chat/useChat'
@@ -39,6 +39,8 @@ export function App() {
   const accounts = useAccounts(bridge)
   const modes = useModes(bridge)
   const [draft, setDraft] = useState('')
+  const [attachments, setAttachments] = useState<Attachment[]>([])
+  const [thumbnails, setThumbnails] = useState<Record<string, string>>({})
   // Title for the conversation an ask from the panel starts.
   const [askTitle, setAskTitle] = useState<string | undefined>(undefined)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -48,6 +50,7 @@ export function App() {
   const { open: openChat, send: sendChat } = chat
   const open = useCallback((id: string | null) => {
     setAskTitle(undefined)
+    setAttachments([])
     openChat(id)
   }, [openChat])
 
@@ -55,26 +58,55 @@ export function App() {
     setDraft(current => current === '' || current.endsWith('\n') ? current + text : `${current}\n${text}`)
     setFocusRequest(n => n + 1)
   }, [])
-  useDrop(bridge, open, insert)
+
+  const addAttachments = useCallback((files: Attachment[]) => {
+    if (files.length === 0) return
+    setAttachments(current => {
+      const known = new Set(current.map(item => item.path))
+      const added = files.filter(item => !known.has(item.path))
+      return added.length === 0 ? current : [...current, ...added]
+    })
+    setFocusRequest(n => n + 1)
+  }, [])
+
+  const removeAttachment = useCallback((path: string) => {
+    setAttachments(current => current.filter(item => item.path !== path))
+  }, [])
+
+  useDrop(bridge, open, insert, addAttachments)
 
   /** The composer's + button: pick local files and add them to the message. */
   const pickAttachments = useCallback(() => {
     if (bridge === null) return
     void bridge.pickAttachments().then((picked: Attachment[]) => {
-      if (picked.length === 0) return
-      insert(picked.map(attachmentLine).join('\n'))
+      addAttachments(picked)
     }, () => {
       // A cancelled or failed dialog just leaves the message as it was.
     })
-  }, [bridge, insert])
+  }, [bridge, addAttachments])
+
+  /* 图片附件的小缩略图，显示在输入框上方；非图片返回空 */
+  useEffect(() => {
+    if (bridge === null || attachments.length === 0) {
+      setThumbnails({})
+      return
+    }
+    let alive = true
+    void Promise.all(attachments.map(async (item) => [item.path, await bridge.attachmentPreview(item.path).catch(() => '')] as const))
+      .then((entries) => {
+        if (alive) setThumbnails(Object.fromEntries(entries))
+      })
+    return () => {
+      alive = false
+    }
+  }, [attachments, bridge])
 
   useEffect(() => {
     if (bridge === null) return
     const off = bridge.on('askRequested', (text, files) => {
       openChat(null)
-      // The attachments travel as the same marker lines the composer uses;
-      // the native side turns them into real ACP attachments on send.
-      setDraft([text, ...files.map(file => t.droppedFile(file))].filter(part => part !== '').join('\n'))
+      setDraft(text)
+      addAttachments(files.map(file => ({ path: file, name: fileName(file), image: false })))
       const title = text === '' ? fileName(files[0] ?? '') : text.replace(/\s+/g, ' ').trim().slice(0, 24)
       setAskTitle(title === '' ? undefined : title)
       setFocusRequest(n => n + 1)
@@ -82,7 +114,7 @@ export function App() {
     // Asks queued before the page listened arrive now.
     bridge.ready()
     return off
-  }, [bridge, openChat])
+  }, [bridge, openChat, addAttachments])
 
   const { refresh: refreshAccounts } = accounts
   useEffect(() => bridge?.on('coreRestarted', () => {
@@ -93,8 +125,13 @@ export function App() {
 
   const send = sendChat && ((text: string) => {
     setNotice(undefined)
-    sendChat(text, chat.current === undefined ? askTitle : undefined)
+    // 附件仍然按界面约定写成标记行，native 侧发送时转成真正的 ACP 附件
+    const content = [text.trim(), ...attachments.map(item => (item.image ? t.droppedImage(item.path) : t.droppedFile(item.path)))]
+      .filter(part => part !== '')
+      .join('\n')
+    sendChat(content, chat.current === undefined ? askTitle : undefined)
     setAskTitle(undefined)
+    setAttachments([])
   })
 
   const approval = chat.approvals.find(item => item.conversationId === chat.current?.id)
@@ -143,6 +180,8 @@ export function App() {
           notice={notice}
           focusRequest={focusRequest}
           onAttach={bridge === null ? undefined : pickAttachments}
+          attachments={attachments.map(item => ({ path: item.path, name: item.name, thumbnail: thumbnails[item.path] ?? '' }))}
+          onRemoveAttachment={removeAttachment}
           onSend={send}
           onStop={chat.stop}
           onAnswer={chat.answer}

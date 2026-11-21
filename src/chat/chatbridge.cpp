@@ -11,7 +11,9 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QBuffer>
 #include <QImage>
+#include <QImageReader>
 #include <QJsonDocument>
 #include <QMimeDatabase>
 #include <QPointer>
@@ -331,6 +333,38 @@ void ChatBridge::pickAttachments(int callId)
         });
     }
     replyTo(callId)(attachments, QString());
+}
+
+void ChatBridge::fetchAccountModels(int callId, const QString &accountId)
+{
+    QJsonObject params;
+    if (!accountId.isEmpty()) {
+        params.insert(QStringLiteral("accountId"), accountId);
+    }
+    AiCore::instance()->call(QStringLiteral("gxde-ai-core/auth/providers/models"), params,
+                             replyTo(callId));
+}
+
+QString ChatBridge::attachmentPreview(const QString &path) const
+{
+    QImageReader reader(path);
+    reader.setAutoTransform(true);
+    if (!reader.canRead()) {
+        return {};
+    }
+    const QSize size = reader.size();
+    if (!size.isValid() || size.width() > 160 || size.height() > 120) {
+        reader.setScaledSize(size.scaled(160, 120, Qt::KeepAspectRatio));
+    }
+    const QImage image = reader.read();
+    if (image.isNull()) {
+        return {};
+    }
+    QByteArray bytes;
+    QBuffer buffer(&bytes);
+    buffer.open(QIODevice::WriteOnly);
+    image.save(&buffer, "PNG");
+    return QStringLiteral("data:image/png;base64,") + QString::fromLatin1(bytes.toBase64());
 }
 
 void ChatBridge::revealTurn()

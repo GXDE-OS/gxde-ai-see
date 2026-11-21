@@ -173,6 +173,8 @@ interface RawBridge extends RawSignals {
   saveSettings: QtMethod<[settings: ChatSettings], string>
   saveImage: QtMethod<[base64: string], string>
   pickAttachments: QtMethod<[callId: number], Attachment[]>
+  attachmentPreview: QtMethod<[path: string], string>
+  fetchAccountModels: QtMethod<[callId: number, accountId: string]>
 }
 
 declare global {
@@ -315,6 +317,18 @@ export class Bridge {
   /** Store image bytes (base64) in the cache; resolves to the path, '' on failure. */
   saveImage(base64: string): Promise<string> {
     return this.invoke(this.raw.saveImage, base64)
+  }
+
+  /** 按账号从上游（供应商 API）拉取模型列表。 */
+  fetchAccountModels(accountId: string): Promise<unknown> {
+    return this.request((id) => {
+      this.raw.fetchAccountModels(id, accountId)
+    })
+  }
+
+  /** 图片附件的 data URL 缩略图；不是图片时返回 ''。 */
+  attachmentPreview(path: string): Promise<string> {
+    return this.invoke(this.raw.attachmentPreview, path)
   }
 
   /** Let the user pick local files; resolves to [] when the dialog was cancelled. */

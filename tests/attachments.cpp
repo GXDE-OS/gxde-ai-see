@@ -85,7 +85,7 @@ int main(int argc, char *argv[])
     const QJsonArray blocks =
         ChatAttachments::promptBlocks(QString(), QStringLiteral("帮我看看"),
                                       { textPath, imagePath, dir.filePath(QStringLiteral("没了.png")) });
-    check(blocks.size() == 5, "text + file + image + missing + vision note = 5 blocks");
+    check(blocks.size() == 4, "text + file + image + missing = 4 blocks");
 
     const QJsonObject textBlock = blocks.at(0).toObject();
     check(textBlock.value(QStringLiteral("type")).toString() == QStringLiteral("text"),

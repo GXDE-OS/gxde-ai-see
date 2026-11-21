@@ -1,21 +1,9 @@
 import { useEffect } from 'react'
 import type { Attachment, Bridge } from '../ipc/bridge'
-import { t } from './strings'
 
-/** A dropped URL as a line for the model: local files by path. */
-export function urlLine(url: string): string {
-  if (!url.startsWith('file:')) return url
-  try {
-    return t.droppedFile(decodeURIComponent(new URL(url).pathname))
-  }
-  catch {
-    return url
-  }
-}
-
-/** A file picked with the composer's + button, as a line for the model. */
-export function attachmentLine(attachment: Attachment): string {
-  return attachment.image ? t.droppedImage(attachment.path) : t.droppedFile(attachment.path)
+const marker = (path: string) => {
+  const name = path.split('/').filter(Boolean).at(-1) ?? path
+  return { path, name, image: false }
 }
 
 function readBase64(file: File): Promise<string> {
@@ -32,25 +20,53 @@ function readBase64(file: File): Promise<string> {
   })
 }
 
-async function dropText(bridge: Bridge, data: DataTransfer): Promise<string> {
+interface DroppedContent {
+  text: string
+  files: Attachment[]
+}
+
+/** Drop payload 拆成「输入框文字」和「附件」两部分。 */
+async function dropContent(bridge: Bridge, data: DataTransfer): Promise<DroppedContent> {
   const urls = data.getData('text/uri-list').split(/\r?\n/).filter(line => line !== '' && !line.startsWith('#'))
-  if (urls.length > 0) return urls.map(urlLine).join('\n')
+  const files: Attachment[] = []
+  const texts: string[] = []
+  for (const url of urls) {
+    if (url.startsWith('file:')) {
+      try {
+        files.push(marker(decodeURIComponent(new URL(url).pathname)))
+      }
+      catch {
+        texts.push(url)
+      }
+    }
+    else {
+      texts.push(url)
+    }
+  }
+  if (urls.length > 0) {
+    return { text: texts.join('\n'), files }
+  }
   const image = [...data.files].find(file => file.type.startsWith('image/'))
   if (image !== undefined) {
     const path = await bridge.saveImage(await readBase64(image))
-    return path === '' ? '' : t.droppedImage(path)
+    return { text: '', files: path === '' ? [] : [marker(path)] }
   }
-  return data.getData('text/plain')
+  return { text: data.getData('text/plain'), files: [] }
 }
 
 const accepts = (data: DataTransfer | null) =>
   data !== null && data.types.some(type => type === 'Files' || type === 'text/uri-list' || type === 'text/plain')
 
 /**
- * Turn anything dropped on the page into composer text. A drop on a
- * conversation opens it; one on the list's empty space starts a new one.
+ * Turn anything dropped on the page into composer text / attachments. A drop
+ * on a conversation opens it; one on the list's empty space starts a new one.
  */
-export function useDrop(bridge: Bridge | null, open: (id: string | null) => void, insert: (text: string) => void) {
+export function useDrop(
+  bridge: Bridge | null,
+  open: (id: string | null) => void,
+  insertText: (text: string) => void,
+  addAttachments: (files: Attachment[]) => void,
+) {
   useEffect(() => {
     if (bridge === null) return
     const target = (x: number, y: number) => {
@@ -70,20 +86,37 @@ export function useDrop(bridge: Bridge | null, open: (id: string | null) => void
       // Also keeps a textarea from taking the text and the page from navigating.
       event.preventDefault()
       target(event.clientX, event.clientY)
-      void dropText(bridge, data!).then((text) => {
-        if (text.trim() !== '') insert(text)
+      void dropContent(bridge, data!).then(({ text, files }) => {
+        if (text.trim() !== '') insertText(text)
+        addAttachments(files)
       })
     }
     window.addEventListener('dragover', over, true)
     window.addEventListener('drop', drop, true)
     const off = bridge.on('urlsDropped', (urls, x, y) => {
       target(x, y)
-      insert(urls.map(urlLine).join('\n'))
+      const files: Attachment[] = []
+      const texts: string[] = []
+      for (const url of urls) {
+        if (url.startsWith('file:')) {
+          try {
+            files.push(marker(decodeURIComponent(new URL(url).pathname)))
+          }
+          catch {
+            texts.push(url)
+          }
+        }
+        else {
+          texts.push(url)
+        }
+      }
+      if (texts.length > 0) insertText(texts.join('\n'))
+      addAttachments(files)
     })
     return () => {
       window.removeEventListener('dragover', over, true)
       window.removeEventListener('drop', drop, true)
       off()
     }
-  }, [bridge, insert, open])
+  }, [bridge, insertText, addAttachments, open])
 }

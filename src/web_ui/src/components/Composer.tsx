@@ -30,6 +30,13 @@ const keepFocus = (event: MouseEvent) => {
   event.preventDefault()
 }
 
+export interface ComposerAttachment {
+  path: string
+  name: string
+  /** 图片附件的 data URL 缩略图，非图片为空。 */
+  thumbnail?: string
+}
+
 export interface ComposerProps {
   variant: 'hero' | 'composer'
   text: string
@@ -37,6 +44,9 @@ export interface ComposerProps {
   running?: boolean
   onSend?: ((text: string) => void) | undefined
   onStop?: () => void
+  /** 待发送附件：显示在输入框上方，和 DSH 一样先预览再发。 */
+  attachments?: ComposerAttachment[]
+  onRemoveAttachment?: (path: string) => void
   /** Pickers on the left of the action row. */
   tools?: ReactNode
   /** Pick local files for the message (the + button). */
@@ -47,7 +57,7 @@ export interface ComposerProps {
   focusRequest?: number
 }
 
-export function Composer({ variant, text, onTextChange, running = false, onSend, onStop, tools, onAttach, notice, focusRequest = 0 }: ComposerProps) {
+export function Composer({ variant, text, onTextChange, running = false, onSend, onStop, attachments = [], onRemoveAttachment, tools, onAttach, notice, focusRequest = 0 }: ComposerProps) {
   const textarea = useRef<HTMLTextAreaElement>(null)
   useEffect(() => {
     const input = textarea.current
@@ -57,8 +67,9 @@ export function Composer({ variant, text, onTextChange, running = false, onSend,
   }, [focusRequest])
 
   const empty = text.trim() === ''
+  const canSend = !empty || attachments.length > 0
   const submit = () => {
-    if (running || empty || onSend === undefined) return
+    if (running || !canSend || onSend === undefined) return
     onSend(text)
     onTextChange('')
   }
@@ -71,6 +82,29 @@ export function Composer({ variant, text, onTextChange, running = false, onSend,
 
   return (
     <div className={clsx(ib.root, variant === 'hero' && ib.hero)}>
+      {attachments.length > 0 && (
+        <div className={local.attachments} data-composer-attachments>
+          {attachments.map(item => (
+            <div key={item.path} className={clsx(local.chip, item.thumbnail ? local.chipImage : local.chipFile)} title={item.path}>
+              {item.thumbnail !== undefined && item.thumbnail !== ''
+                ? <img className={local.chipThumb} src={item.thumbnail} alt="" />
+                : <span className={local.chipGlyph} aria-hidden>📎</span>}
+              <span className={local.chipName}>{item.name}</span>
+              {onRemoveAttachment !== undefined && (
+                <button
+                  type="button"
+                  className={local.chipRemove}
+                  aria-label={`${t.removeAttachment} ${item.name}`}
+                  onMouseDown={keepFocus}
+                  onClick={() => { onRemoveAttachment(item.path) }}
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
       <div
         className={clsx(ib.card, local.card)}
         data-composer-card
@@ -126,7 +160,7 @@ export function Composer({ variant, text, onTextChange, running = false, onSend,
                     type="button"
                     className={clsx(ib.primary, local.send)}
                     aria-label={t.send}
-                    disabled={empty || onSend === undefined}
+                    disabled={!canSend || onSend === undefined}
                     onMouseDown={keepFocus}
                     onClick={submit}
                   >

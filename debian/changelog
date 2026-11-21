@@ -1,3 +1,15 @@
+gxde-ai-see (1.0.2~beta7) unstable; urgency=medium
+
+  * 输入框上方新增附件预览：图片显示缩略图、文件显示名称，可单独移除；
+    只有附件没有文字时也能直接发送（DSH 风格）
+  * 账号设置支持「从上游获取」模型列表（调用 AI Core 的
+    gxde-ai-core/auth/providers/models，需 gxde-ai-core >= 1.0.0-beta4）
+  * 去掉上一版的两处说明文案，改为直接支持功能
+  * 依赖 gxde-ai-core >= 1.0.0-beta4（模型列表接口与图片不被降级的修复）
+  * 应用图标改为透明底、按 384px 源图重新生成（原来蓝底且发糊）
+
+ -- shenmo <shenmo@spark-app.store>  Sat, 21 Nov 2026 17:35:00 +0800
+
 gxde-ai-see (1.0.2~beta6) unstable; urgency=medium
 
   * 修复第一次从传送门添加待办时卡顿/窗口不出现：待办窗口的创建与显示
